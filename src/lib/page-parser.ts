@@ -5,7 +5,8 @@
 import { Readability } from '@mozilla/readability';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { extractDateFromDocument } from './date-extractor';
-import type { ExtractedDate } from './types';
+import { extractSeo } from './seo-extractor';
+import type { ArticleSeo, ExtractedDate } from './types';
 
 export interface ParsedPage {
   /** URL thật của trang (sau chuyển hướng) */
@@ -21,6 +22,8 @@ export interface ParsedPage {
   usedReadability: boolean;
   /** Ngày đăng đọc từ trang / URL (bước 1–4) */
   date: ExtractedDate | null;
+  /** Thông tin SEO (meta, Open Graph, JSON-LD) */
+  seo: ArticleSeo;
 }
 
 const MAX_TEXT_LENGTH = 300_000;
@@ -98,6 +101,8 @@ export function parsePage(html: string, url: string, now = new Date()): ParsedPa
     const description = squash(meta('meta[property="og:description"]') || meta('meta[name="description"]'));
     const siteName = meta('meta[property="og:site_name"]') || null;
     const date = extractDateFromDocument(doc, canonicalUrl ? [url, canonicalUrl] : [url], now);
+    // Đọc SEO trước khi Readability sửa DOM; số từ cập nhật sau khi có nội dung chính
+    const seo = extractSeo(doc, url, canonicalUrl, 0);
     // Lấy toàn văn trước vì Readability sửa trực tiếp DOM
     const fullText = textOf(doc.body ?? doc.documentElement).slice(0, MAX_TEXT_LENGTH);
 
@@ -109,6 +114,7 @@ export function parsePage(html: string, url: string, now = new Date()): ParsedPa
       // Readability lỗi → dùng toàn văn
     }
     const usedReadability = mainText.length >= MIN_MAIN_TEXT_LENGTH;
+    seo.wordCount = (usedReadability ? mainText : fullText).split(/\s+/).filter(Boolean).length;
     return {
       finalUrl: url,
       canonicalUrl,
@@ -119,6 +125,7 @@ export function parsePage(html: string, url: string, now = new Date()): ParsedPa
       fullText,
       usedReadability,
       date,
+      seo,
     };
   } finally {
     dom.window.close();

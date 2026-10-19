@@ -13,7 +13,27 @@ import type { ArticleResult, RejectedItem } from './types';
 const ARTICLE_HEADERS = [
   'STT', 'Ngày đăng', 'Nguồn ngày', 'Độ tin cậy', 'Tiêu đề', 'Báo', 'Domain', 'Phạm vi',
   'Khớp theo', 'Biến thể khớp', 'Từ phụ khớp', 'Tìm qua', 'Đoạn trích', 'Link',
+  // Chi tiết SEO của bài
+  'Tiêu đề SEO', 'Mô tả (meta description)', 'Ảnh đại diện', 'Tác giả', 'Chuyên mục', 'Từ khoá SEO', 'Canonical',
+  'Ngày cập nhật', 'Số từ',
 ];
+
+/** Các cột SEO, cùng thứ tự với ARTICLE_HEADERS */
+function seoCells(a: ArticleResult): (string | number)[] {
+  const seo = a.seo;
+  if (!seo) return ['', '', '', '', '', '', '', '', ''];
+  return [
+    seo.title,
+    seo.description ?? seo.ogDescription ?? '',
+    seo.image ?? '',
+    seo.author ?? '',
+    seo.section ?? '',
+    seo.keywords.join(', '),
+    seo.canonical ?? '',
+    seo.modified ?? '',
+    seo.wordCount,
+  ];
+}
 
 /** "3/5: chuyến, thăm, ABC" — số từ phụ (hoặc từ đã nhập, khi tìm liên quan) có trong bài */
 function optionalSummary(a: ArticleResult): string {
@@ -42,7 +62,7 @@ export function toCsv(articles: ArticleResult[]): string {
     return [
       i + 1, a.date?.date ?? '', source, confidence, a.title, a.sourceName ?? '', a.domain,
       REGION_LABELS[a.region], matchSourceLabel(a.matchedLanguage), a.matchedVariant, optionalSummary(a),
-      sourceLabel(a.foundLanguage, a.foundVia), a.snippet, a.url,
+      sourceLabel(a.foundLanguage, a.foundVia), a.snippet, a.url, ...seoCells(a),
     ];
   });
   // BOM để Excel nhận đúng UTF-8 tiếng Việt
@@ -72,6 +92,15 @@ export async function toXlsx(articles: ArticleResult[], rejected: RejectedItem[]
     { header: 'Tìm qua', key: 'engine', width: 22 },
     { header: 'Đoạn trích', key: 'snippet', width: 80, style: { alignment: wrap } },
     { header: 'Link', key: 'url', width: 50 },
+    { header: 'Tiêu đề SEO', key: 'seoTitle', width: 50, style: { alignment: wrap } },
+    { header: 'Mô tả (meta description)', key: 'seoDescription', width: 60, style: { alignment: wrap } },
+    { header: 'Ảnh đại diện', key: 'seoImage', width: 40 },
+    { header: 'Tác giả', key: 'seoAuthor', width: 22 },
+    { header: 'Chuyên mục', key: 'seoSection', width: 18 },
+    { header: 'Từ khoá SEO', key: 'seoKeywords', width: 40, style: { alignment: wrap } },
+    { header: 'Canonical', key: 'seoCanonical', width: 50 },
+    { header: 'Ngày cập nhật', key: 'seoModified', width: 14 },
+    { header: 'Số từ', key: 'seoWords', width: 8 },
   ];
   articles.forEach((a, i) => {
     const { source, confidence } = dateInfo(a);
@@ -90,10 +119,15 @@ export async function toXlsx(articles: ArticleResult[], rejected: RejectedItem[]
       engine: sourceLabel(a.foundLanguage, a.foundVia),
       snippet: a.snippet,
       url: { text: a.url, hyperlink: a.url },
+      ...Object.fromEntries(
+        ['seoTitle', 'seoDescription', 'seoImage', 'seoAuthor', 'seoSection', 'seoKeywords', 'seoCanonical', 'seoModified', 'seoWords'].map(
+          (key, i) => [key, seoCells(a)[i]],
+        ),
+      ),
     });
   });
   sheet.getRow(1).font = { bold: true };
-  sheet.autoFilter = { from: 'A1', to: 'N1' };
+  sheet.autoFilter = { from: 'A1', to: 'W1' };
 
   const rejectedSheet = workbook.addWorksheet('Bị loại', { views: [{ state: 'frozen', ySplit: 1 }] });
   rejectedSheet.columns = [

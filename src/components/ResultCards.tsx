@@ -1,10 +1,12 @@
 import { REGION_LABELS, engineLabel, matchSourceLabel } from '@/lib/labels';
 import { SOURCE_LANGUAGE, type ArticleResult } from '@/lib/types';
 import { ExternalIcon } from './icons';
-import { DateInfo, Highlighted, MatchInfo } from './ResultsTable';
+import { DateInfo, Highlighted, MatchInfo, seoPanelId, useOpenSet } from './ResultsTable';
+import { SeoDetails, SeoToggle } from './SeoDetails';
 
 /** Kết quả dạng thẻ cho màn hình hẹp (thay cho bảng phải cuộn ngang) */
 export function ResultCards({ items }: { items: ArticleResult[] }) {
+  const [openSeo, toggleSeo] = useOpenSet();
   return (
     <ol className="flex flex-col gap-3">
       {items.map((item, i) => (
@@ -31,6 +33,12 @@ export function ResultCards({ items }: { items: ArticleResult[] }) {
             <Highlighted text={item.snippet} ranges={item.highlights} />
           </p>
           <MatchInfo item={item} />
+          <SeoToggle open={openSeo.has(item.id)} onToggle={() => toggleSeo(item.id)} controls={`m-${seoPanelId(i)}`} />
+          {openSeo.has(item.id) && (
+            <div className="mt-3">
+              <SeoDetails seo={item.seo} id={`m-${seoPanelId(i)}`} />
+            </div>
+          )}
         </li>
       ))}
     </ol>

@@ -451,6 +451,7 @@ export async function runPipeline(
         optionalMatch: matcher.optional.length ? { found: optionalFound, total: matcher.optional.length } : null,
         foundLanguage: c.source.language,
         foundVia: c.source.engine,
+        seo: page.seo ?? null,
       },
     });
   }

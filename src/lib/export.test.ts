@@ -18,6 +18,7 @@ const article = (overrides: Partial<ArticleResult> = {}): ArticleResult => ({
   optionalMatch: null,
   foundLanguage: 'vi',
   foundVia: 'google',
+  seo: null,
   ...overrides,
 });
 
@@ -26,11 +27,11 @@ describe('toCsv', () => {
     const csv = toCsv([article()]);
     expect(
       csv.startsWith(
-        '﻿STT,Ngày đăng,Nguồn ngày,Độ tin cậy,Tiêu đề,Báo,Domain,Phạm vi,Khớp theo,Biến thể khớp,Từ phụ khớp,Tìm qua,Đoạn trích,Link\r\n',
+        '﻿STT,Ngày đăng,Nguồn ngày,Độ tin cậy,Tiêu đề,Báo,Domain,Phạm vi,Khớp theo,Biến thể khớp,Từ phụ khớp,Tìm qua,Đoạn trích,Link,Tiêu đề SEO,Mô tả (meta description),Ảnh đại diện,Tác giả,Chuyên mục,Từ khoá SEO,Canonical,Ngày cập nhật,Số từ\r\n',
       ),
     ).toBe(true);
     expect(csv).toContain(
-      '1,2019-05-12,Meta tag,Tin cậy cao,"Ông Trần Văn A, ""người hùng"" thầm lặng",VnExpress,vnexpress.net,Trong nước,Từ khoá gốc,Trần Văn A,,Tiếng Việt · Google,"…ông Trần Văn A cho biết,\nhôm nay…",https://vnexpress.net/a.html',
+      '1,2019-05-12,Meta tag,Tin cậy cao,"Ông Trần Văn A, ""người hùng"" thầm lặng",VnExpress,vnexpress.net,Trong nước,Từ khoá gốc,Trần Văn A,,Tiếng Việt · Google,"…ông Trần Văn A cho biết,\nhôm nay…",https://vnexpress.net/a.html,,,,,,,,,',
     );
   });
 
@@ -44,6 +45,32 @@ describe('toCsv', () => {
     const csv = toCsv([article({ optionalMatch: { found: ['thăm', 'thủ'], total: 4 } })]);
     expect(csv).toContain(',Trần Văn A,"2/4: thăm, thủ",');
     expect(toCsv([article({ loose: true, optionalMatch: { found: [], total: 3 } })])).toContain(',Trần Văn A,0/3,');
+  });
+
+  it('xuất kèm chi tiết SEO của bài', () => {
+    const csv = toCsv([
+      article({
+        seo: {
+          title: 'Tiêu đề | VnExpress',
+          ogTitle: 'Tiêu đề',
+          description: 'Mô tả bài',
+          ogDescription: null,
+          image: 'https://vnexpress.net/a.jpg',
+          author: 'Nguyễn Văn B',
+          section: 'Thời sự',
+          keywords: ['Tô Lâm', 'Đan Mạch'],
+          canonical: 'https://vnexpress.net/a.html',
+          language: 'vi',
+          publisher: 'VnExpress',
+          modified: '2026-10-19',
+          robots: null,
+          wordCount: 820,
+        },
+      }),
+    ]);
+    expect(csv).toContain(
+      ',https://vnexpress.net/a.html,Tiêu đề | VnExpress,Mô tả bài,https://vnexpress.net/a.jpg,Nguyễn Văn B,Thời sự,"Tô Lâm, Đan Mạch",https://vnexpress.net/a.html,2026-10-19,820',
+    );
   });
 
   it('bài không rõ ngày và ô có nguy cơ chèn công thức', () => {

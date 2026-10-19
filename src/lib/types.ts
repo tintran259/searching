@@ -70,6 +70,32 @@ export interface HighlightRange {
   kind: 'required' | 'optional';
 }
 
+/** Thông tin SEO của bài, đọc từ thẻ meta / Open Graph / JSON-LD của trang */
+export interface ArticleSeo {
+  /** Thẻ <title> */
+  title: string;
+  ogTitle: string | null;
+  /** meta description */
+  description: string | null;
+  ogDescription: string | null;
+  /** Ảnh đại diện (og:image / twitter:image / JSON-LD image), URL tuyệt đối */
+  image: string | null;
+  author: string | null;
+  /** Chuyên mục (article:section / articleSection) */
+  section: string | null;
+  keywords: string[];
+  canonical: string | null;
+  /** Ngôn ngữ trang (thuộc tính lang / og:locale) */
+  language: string | null;
+  publisher: string | null;
+  /** Ngày cập nhật, YYYY-MM-DD */
+  modified: string | null;
+  /** meta robots (vd "noindex") */
+  robots: string | null;
+  /** Số từ của nội dung chính */
+  wordCount: number;
+}
+
 export interface ArticleResult {
   /** Khoá URL đã chuẩn hoá (dùng để gộp trùng) */
   id: string;
@@ -94,6 +120,8 @@ export interface ArticleResult {
   /** Nguồn đã tìm ra bài: ngôn ngữ của truy vấn và công cụ tìm kiếm */
   foundLanguage: string;
   foundVia: SearchEngine;
+  /** Chi tiết SEO của bài (null nếu không đọc được) */
+  seo: ArticleSeo | null;
 }
 
 export type RejectReason =

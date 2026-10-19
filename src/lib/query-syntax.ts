@@ -118,13 +118,23 @@ const tidy = (s: string) => s.replace(/\s+/g, ' ').trim();
  * Đặt vùng [start, end) của chuỗi làm từ khoá chính (thêm dấu `). Vùng chọn được nới ra
  * cho đủ từ (bôi "AB" trong "ABC" → "ABC") và gộp với các cụm bắt buộc mà nó chạm tới.
  */
-export function markRequired(input: string, start: number, end: number): string {
+export function markRequired(
+  input: string,
+  start: number,
+  end: number,
+  options: { mergeAdjacent?: boolean } = {},
+): string {
   let s = Math.max(0, Math.min(start, end));
   let e = Math.min(input.length, Math.max(start, end));
   while (s > 0 && WORD_CHAR.test(input[s - 1]) && WORD_CHAR.test(input[s] ?? '')) s--;
   while (e < input.length && e > 0 && WORD_CHAR.test(input[e - 1]) && WORD_CHAR.test(input[e])) e++;
   for (const region of quotedRegions(input)) {
-    if (region.start < e && region.end > s) {
+    // mergeAdjacent (chạm từng từ trên điện thoại): từ khoá chính chỉ cách bởi khoảng trắng cũng được nối lại
+    const touches = region.start < e && region.end > s;
+    const adjacent =
+      options.mergeAdjacent &&
+      ((region.end <= s && !input.slice(region.end, s).trim()) || (region.start >= e && !input.slice(e, region.start).trim()));
+    if (touches || adjacent) {
       s = Math.min(s, region.start);
       e = Math.max(e, region.end);
     }
@@ -209,4 +219,13 @@ export function applyPlainEdit(value: string, start: number, end: number, insert
   const keptMarks = value.slice(from, to).replace(/[^`]/g, '');
   const next = value.slice(0, from) + inserted + keptMarks + value.slice(to);
   return next.replaceAll(`${KEYWORD_MARK}${KEYWORD_MARK}`, '');
+}
+
+/** Các từ (vị trí [start, end) trong chuỗi) của một đoạn từ phụ — để chạm từng từ đặt làm từ khoá chính */
+export function segmentWords(input: string, segment: QuerySegment): { text: string; start: number; end: number }[] {
+  const words: { text: string; start: number; end: number }[] = [];
+  for (const m of input.slice(segment.start, segment.end).matchAll(/[^\s`"“”„«»]+/g)) {
+    words.push({ text: m[0], start: segment.start + m.index, end: segment.start + m.index + m[0].length });
+  }
+  return words;
 }

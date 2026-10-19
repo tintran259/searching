@@ -199,12 +199,12 @@ export function extractMetaDate(doc: Document, now = new Date()): ExtractedDate 
 const ARTICLE_TYPE = /(?:Article|BlogPosting)$/i;
 const BROKEN_ARTICLE_TYPE = /"@type"\s*:\s*(?:\[\s*)?(?:"[^"]*"\s*,\s*)*"[^"]*(?:Article|BlogPosting)"/i;
 
-function isArticleNode(node: Record<string, unknown>): boolean {
+export function isArticleNode(node: Record<string, unknown>): boolean {
   const type = node['@type'];
   return (Array.isArray(type) ? type : [type]).some((t) => typeof t === 'string' && ARTICLE_TYPE.test(t));
 }
 
-function* walkJsonLd(value: unknown, depth = 0): Generator<Record<string, unknown>> {
+export function* walkJsonLd(value: unknown, depth = 0): Generator<Record<string, unknown>> {
   if (depth > 6 || value === null || typeof value !== 'object') return;
   if (Array.isArray(value)) {
     for (const item of value) yield* walkJsonLd(item, depth + 1);
@@ -218,7 +218,7 @@ function* walkJsonLd(value: unknown, depth = 0): Generator<Record<string, unknow
 }
 
 /** JSON.parse dễ dãi: báo hay để xuống dòng thô trong chuỗi hoặc dấu phẩy thừa. */
-function parseJsonLoose(text: string): unknown {
+export function parseJsonLoose(text: string): unknown {
   const cleaned = text.trim().replace(/^<!\[CDATA\[/, '').replace(/\]\]>$/, '');
   const repaired = cleaned.replace(/[\u0000-\u001F]+/g, ' ').replace(/,\s*([}\]])/g, '$1');
   for (const candidate of [cleaned, repaired]) {

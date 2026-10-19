@@ -7,6 +7,7 @@ import {
   applyPlainEdit,
   markedRanges,
   requiredSegmentAt,
+  segmentWords,
   stripMarks,
   toValueIndex,
   unmarkRequired,
@@ -104,6 +105,22 @@ describe('markRequired / unmarkRequired / requiredSegmentAt', () => {
     const input = 'Chuyến thăm `ABC` của `thủ tướng`';
     const segment = parseQuery(input).segments.find((s) => s.text === 'ABC')!;
     expect(unmarkRequired(input, segment)).toBe('Chuyến thăm ABC của `thủ tướng`');
+  });
+
+  it('chạm từng từ (điện thoại): từ liền kề nối vào từ khoá chính có sẵn', () => {
+    const text = 'Chủ tịch nước Tô Lâm thăm Đan Mạch';
+    const words = segmentWords(text, parseQuery(text).segments[0]);
+    expect(words.map((w) => w.text)).toEqual(['Chủ', 'tịch', 'nước', 'Tô', 'Lâm', 'thăm', 'Đan', 'Mạch']);
+    const tap = (input: string, word: string) => {
+      const w = parseQuery(input).segments.filter((seg) => !seg.required).flatMap((seg) => segmentWords(input, seg)).find((x) => x.text === word)!;
+      return markRequired(input, w.start, w.end, { mergeAdjacent: true });
+    };
+    const once = tap(text, 'Tô');
+    expect(once).toBe('Chủ tịch nước `Tô` Lâm thăm Đan Mạch');
+    expect(tap(once, 'Lâm')).toBe('Chủ tịch nước `Tô Lâm` thăm Đan Mạch');
+    expect(tap(tap(once, 'Lâm'), 'Đan')).toBe('Chủ tịch nước `Tô Lâm` thăm `Đan` Mạch'); // không liền kề → từ khoá riêng
+    // Bôi đen (không mergeAdjacent) vẫn tạo được hai từ khoá chính liền nhau
+    expect(markRequired('`Tô Lâm` Đan Mạch', 9, 17)).toBe('`Tô Lâm` `Đan Mạch`');
   });
 
   it('tìm từ khoá chính chứa trọn vùng đang bôi đen', () => {

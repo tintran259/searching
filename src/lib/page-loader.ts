@@ -12,7 +12,8 @@ const MIN_PAGE_TEXT_LENGTH = 30;
 type CachedPage = { page: ParsedPage } | { error: { kind: FetchErrorKind; message: string } };
 
 // Cache trang đã phân tích (không lưu HTML gốc để cache gọn)
-const pageCache = createCache<CachedPage>('pages', { ttlMs: PAGE_TTL_MS, maxMemoryEntries: 300 });
+// "pages-v2": trang đã phân tích có thêm thông tin SEO; cache cũ (không có SEO) bị bỏ qua
+const pageCache = createCache<CachedPage>('pages-v2', { ttlMs: PAGE_TTL_MS, maxMemoryEntries: 300 });
 
 /** Lỗi ổn định (robots, không phải HTML, 4xx) được cache; timeout, lỗi mạng, 5xx, 429 thì không. */
 function isStableError(err: FetchError): boolean {

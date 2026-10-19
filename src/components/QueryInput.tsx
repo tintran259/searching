@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from 'antd';
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   KEYWORD_MARK,
   LOOSE_MIN_RATIO,
@@ -12,6 +12,7 @@ import {
   markedRanges,
   parseQuery,
   requiredSegmentAt,
+  segmentWords,
   stripMarks,
   toValueIndex,
   unmarkRequired,
@@ -68,6 +69,7 @@ function diffEdit(before: string, after: string, caret: number) {
  */
 export function QueryInput({ value, onChange, disabled, action }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const mirrorRef = useRef<HTMLSpanElement>(null);
   /** Vị trí con trỏ cần đặt lại sau khi chuỗi hiển thị khác chuỗi trong ô (vd vừa gõ dấu `) */
   const pendingCaretRef = useRef<number | null>(null);
@@ -90,6 +92,17 @@ export function QueryInput({ value, onChange, disabled, action }: Props) {
       mirrorRef.current.style.transform = `translateX(${-inputRef.current.scrollLeft}px)`;
     }
   };
+
+  // Chạm / bấm ra ngoài ô nhập và popup thì đóng popup. Không đóng khi ô nhập mất focus: trên điện thoại
+  // chạm vào nút trong popup làm ô nhập mất focus trước khi nút nhận được cú chạm.
+  useEffect(() => {
+    if (!selection) return;
+    const close = (e: PointerEvent) => {
+      if (!wrapperRef.current?.contains(e.target as Node)) setSelection(null);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [selection]);
 
   useLayoutEffect(() => {
     const el = inputRef.current;
@@ -154,28 +167,26 @@ export function QueryInput({ value, onChange, disabled, action }: Props) {
   return (
     // Điện thoại: ô nhập → cách hiểu → gợi ý → nút tìm; màn hình rộng: nút tìm nằm cạnh ô nhập
     <div className="grid gap-x-3 gap-y-2.5 sm:grid-cols-[minmax(0,1fr)_auto]">
-      <div
-        className="relative sm:col-start-1 sm:row-start-1"
-        // Rời cả ô nhập lẫn popup thì ẩn popup (Tab từ ô nhập sang nút trong popup vẫn giữ).
-        // Không theo dõi onFocus: ô nhập tự focus (autoFocus) trước khi React chạy nên sự kiện đó không tới.
-        onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setSelection(null)}
-      >
+      <div ref={wrapperRef} className="relative sm:col-start-1 sm:row-start-1">
         {/* Lớp hiển thị: cùng font / lề với ô nhập, từ khoá chính tô đậm + đổi màu */}
         <div
           aria-hidden
           className={`pointer-events-none absolute inset-0 flex items-center overflow-hidden rounded-xl border border-transparent bg-surface pr-4 pl-12 text-base whitespace-pre ${disabled ? 'opacity-60' : ''}`}
         >
-          <span ref={mirrorRef} className="inline-block">
-            {ranges.length === 0
-              ? plain
-              : ranges.flatMap((r, i) => [
-                  plain.slice(i === 0 ? 0 : ranges[i - 1].end, r.start),
-                  <span key={i} className="query-keyword">
-                    {plain.slice(r.start, r.end)}
-                  </span>,
-                  ...(i === ranges.length - 1 ? [plain.slice(r.end)] : []),
-                ])}
-          </span>
+          {/* Cắt chữ đúng ở mép vùng nội dung như ô nhập (không tràn sang lề có icon khi chữ cuộn ngang) */}
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <span ref={mirrorRef} className="inline-block">
+              {ranges.length === 0
+                ? plain
+                : ranges.flatMap((r, i) => [
+                    plain.slice(i === 0 ? 0 : ranges[i - 1].end, r.start),
+                    <span key={i} className="query-keyword">
+                      {plain.slice(r.start, r.end)}
+                    </span>,
+                    ...(i === ranges.length - 1 ? [plain.slice(r.end)] : []),
+                  ])}
+            </span>
+          </div>
         </div>
         <SearchIcon className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-muted" />
         <input
@@ -243,7 +254,7 @@ export function QueryInput({ value, onChange, disabled, action }: Props) {
 
       {hasText && (
         <div className="flex flex-wrap items-center gap-1.5 sm:col-span-2">
-          <span className="pr-1 text-xs text-muted">Cách hiểu:</span>
+          <span className="pr-1 text-xs text-muted">Chạm từ để đặt làm từ khoá chính:</span>
           {parsed.segments.map((segment, i) =>
             segment.required ? (
               <button
@@ -252,22 +263,25 @@ export function QueryInput({ value, onChange, disabled, action }: Props) {
                 onClick={() => apply(unmarkRequired(value, segment))}
                 disabled={disabled}
                 className={`${chipBase} bg-accent-soft text-accent ring-1 ring-accent/40 hover:ring-accent`}
-                title="Từ khoá chính, bài phải có nguyên văn — bấm để bỏ"
+                title="Từ khoá chính, bài phải có nguyên văn — chạm để bỏ"
               >
                 <LockIcon className="size-3.5 shrink-0" />
                 <span className="truncate">{segment.text}</span>
               </button>
             ) : (
-              <button
-                key={i}
-                type="button"
-                onClick={() => apply(markRequired(value, segment.start, segment.end))}
-                disabled={disabled}
-                className={`${chipBase} text-muted ring-1 ring-line ring-inset hover:text-fg hover:ring-muted/50`}
-                title="Từ phụ, có hay không đều được — bấm để đặt làm từ khoá chính"
-              >
-                <span className="truncate">{segment.text}</span>
-              </button>
+              // Từ phụ tách từng từ: chạm một từ để đặt làm từ khoá chính, chạm từ liền kề để nối thành cụm
+              segmentWords(value, segment).map((word) => (
+                <button
+                  key={`${i}-${word.start}`}
+                  type="button"
+                  onClick={() => apply(markRequired(value, word.start, word.end, { mergeAdjacent: true }))}
+                  disabled={disabled}
+                  className={`${chipBase} px-1.5 text-muted ring-1 ring-line ring-inset hover:text-fg hover:ring-muted/50`}
+                  title="Từ phụ — chạm để đặt làm từ khoá chính (chạm tiếp từ liền kề để nối thành cụm)"
+                >
+                  {word.text}
+                </button>
+              ))
             ),
           )}
         </div>

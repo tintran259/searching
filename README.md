@@ -26,6 +26,10 @@ npm run dev                  # mở http://localhost:3000
 
 Chạy bản production: `npm run build && npm start`.
 
+### SEO của trang
+
+`metadata` trong `src/app/layout.tsx` (tiêu đề, mô tả, Open Graph, Twitter card, canonical, theme color), ảnh xem trước `src/app/opengraph-image.png` / `twitter-image.png` (1200×630), `robots.ts` (chặn `/api/`), `sitemap.ts`, `manifest.ts` và JSON-LD `WebApplication` trong `page.tsx`. URL tuyệt đối lấy từ `SITE_URL` nếu đặt (tên miền riêng), không thì tên miền production của Vercel (`src/lib/site.ts`).
+
 ### Deploy
 
 1. Node `^20.19`, `^22.12` hoặc `>=24`. Cài bằng `npm ci` (theo `package-lock.json`).
@@ -52,6 +56,7 @@ Chạy bản production: `npm run build && npm start`.
 | `AZURE_TRANSLATOR_KEY` | không | — | Key Microsoft Azure Translator (gói F0 miễn phí ~2 triệu ký tự/tháng). Có key này thì Microsoft là **bộ dịch dự phòng** khi Gemini / Claude lỗi hoặc hết lượt; chỉ có key này thì dùng làm bộ dịch chính. |
 | `AZURE_TRANSLATOR_REGION` | khi cần | — | Vùng của tài nguyên Translator (vd `southeastasia`); bỏ trống nếu tài nguyên là Global |
 | `ANTHROPIC_API_KEY` | khi dịch | — | Thay cho Gemini: key Claude API (trả theo lượng dùng). SDK cũng nhận `ANTHROPIC_AUTH_TOKEN`; nếu dùng profile `ant auth login` thì đặt `TRANSLATOR=claude`. |
+| `SITE_URL` | không | tên miền production của Vercel | Địa chỉ gốc của trang dùng cho canonical, og:image, sitemap (vd `https://dobaiviet.vn` khi gắn tên miền riêng) |
 | `SEARCH_PROVIDER` | không | `serpapi` | Nhà cung cấp tìm kiếm |
 | `TRANSLATOR` | không | tự chọn | `gemini`, `claude`, `microsoft` hoặc `off`. Không đặt thì tự chọn theo key có sẵn: Gemini trước, rồi Claude; không có key nào thì app cảnh báo và chỉ tìm bằng tiếng Việt |
 | `GEMINI_MODEL` | không | `gemini-3.8-flash` | Model Gemini dùng để dịch (vd `gemini-3.5-flash-lite` nhanh hơn) |
@@ -61,13 +66,14 @@ Chạy bản production: `npm run build && npm start`.
 
 ## Cách dùng
 
-1. Nhập nội dung cần tìm vào ô tìm kiếm lớn, vd `Chuyến thăm ABC của thủ tướng`. Bôi đen phần bắt buộc phải có nguyên văn (vd `ABC`): popup hiện ngay dưới chỗ bôi đen, bấm **Đặt làm từ khoá chính** (bôi đen lại phần đã là từ khoá chính thì popup đổi thành **Bỏ từ khoá chính**). Từ khoá chính hiện thành thẻ có ổ khoá ở dòng "Cách hiểu"; bấm vào một thẻ để bật/tắt. Nhập tên người mà chưa đánh dấu thì app gợi ý **"Đây là tên người? Đặt cả tên làm từ khoá chính"**. Xem chi tiết ở [Ô tìm kiếm](#ô-tìm-kiếm-từ-khoá-chính-và-tìm-liên-quan-srclibquery-syntaxts).
+1. Nhập nội dung cần tìm vào ô tìm kiếm lớn, vd `Chuyến thăm ABC của thủ tướng`. Bôi đen phần bắt buộc phải có nguyên văn (vd `ABC`): popup hiện ngay dưới chỗ bôi đen, bấm **Đặt làm từ khoá chính** (bôi đen lại phần đã là từ khoá chính thì popup đổi thành **Bỏ từ khoá chính**). Trên điện thoại (hoặc không muốn bôi đen): ở dòng "Chạm từ để đặt làm từ khoá chính", mỗi từ là một nút — **chạm một từ** để đặt làm từ khoá chính, **chạm tiếp từ liền kề** để nối thành cụm (chạm "Trần", "Thanh", "Mẫn" → "Trần Thanh Mẫn"); chạm thẻ có ổ khoá để bỏ. Nhập tên người mà chưa đánh dấu thì app gợi ý **"Đây là tên người? Đặt cả tên làm từ khoá chính"**. Xem chi tiết ở [Ô tìm kiếm](#ô-tìm-kiếm-từ-khoá-chính-và-tìm-liên-quan-srclibquery-syntaxts).
 2. Chọn **Phạm vi**: Trong nước (báo Việt Nam, chỉ tìm bằng tiếng Việt) hoặc Ngoài nước (báo quốc tế). Chọn Ngoài nước thì hiện ngay phần **chọn ngôn ngữ / nước cần tìm** — không chọn sẵn ngôn ngữ nào, phải chọn ít nhất một (có nút "Gợi ý", "Tất cả", "Bỏ chọn hết") — và tuỳ chọn Baidu/Yandex/Naver. Ngoài nước **không tìm bằng tiếng Việt**.
 3. Chọn **Thời gian đăng bài** bằng hai ô lịch *Từ ngày* / *Đến ngày* (antd DatePicker, gõ được `dd/mm/yyyy`). Mặc định **từ hôm qua đến hôm nay** (giờ Việt Nam) để tìm bài mới nhất; API không truyền `from` cũng dùng mặc định này.
 4. (Tuỳ chọn) Mở **Tuỳ chọn nâng cao** để đổi **số kết quả mỗi ngôn ngữ** (mặc định 10). Mỗi ngôn ngữ được tìm riêng; mỗi lượt tìm trả 10 kết quả và trừ 1 lượt quota SerpApi. Ví dụ Ngoài nước, chọn 6 ngôn ngữ, 10 kết quả mỗi ngôn ngữ: 6 nguồn × 1 lượt = **tối đa 6 lượt, 60 kết quả** (cộng thêm 1 nguồn cho mỗi công cụ Baidu/Yandex/Naver nếu bật và có chọn tiếng Trung/Nga/Hàn). Dưới form có phép tính này cho đúng lựa chọn hiện tại, kèm cảnh báo nếu có thể vượt số lượt còn lại (hiện ở góc phải thanh tiêu đề).
 5. Bấm **Tìm bài viết**. Tiến trình hiện trực tiếp ("Đang tìm tiếng nga trên Google (kết quả 1–10 / tối đa 10) · đã kiểm tra Y/Z bài"); bấm **Dừng** để huỷ, các bài đã tìm được vẫn được giữ. Bảng **Báo cáo theo ngôn ngữ** cho từng nguồn: tối đa bao nhiêu, công cụ trả về bao nhiêu, hợp lệ / bị loại / trùng, và ghi chú khi không đủ (vd "Chỉ có 3/10 kết quả: Google không còn kết quả nào khác", "Google không có kết quả nào…", "Có 10 kết quả nhưng không bài nào hợp lệ", "Không dịch được từ khoá sang ngôn ngữ này").
 6. Tab **Kết quả** xếp cũ → mới; bấm "Cũ → mới" để đổi chiều. Trong đoạn trích, phần bắt buộc được **tô nền vàng**, các từ còn lại được **gạch chân**; dưới đoạn trích ghi bài có bao nhiêu từ phụ (vd "Có 3/4 từ phụ: chuyến, thăm, thủ"). Bài không xác định được ngày luôn nằm cuối. Ô **Lọc** tìm trong tiêu đề, tên báo và đoạn trích, gõ không dấu cũng được. Trên điện thoại kết quả hiển thị dạng thẻ.
-7. **Xuất Excel / CSV** theo đúng thứ tự và bộ lọc đang xem. Tab **Bị loại** cho biết bài nào bị loại và vì sao.
+7. Mỗi kết quả có nút **Chi tiết SEO**: tiêu đề SEO (số ký tự, nhắc khi dài hơn 60), tiêu đề chia sẻ (og:title), mô tả (số ký tự, nhắc khi dài hơn 160), ảnh đại diện, tác giả, chuyên mục, từ khoá, canonical, nhà xuất bản, ngôn ngữ, ngày cập nhật, meta robots, số từ — đọc từ thẻ meta, Open Graph / Twitter và JSON-LD của trang (`src/lib/seo-extractor.ts`). Các trường này cũng có trong file Excel / CSV.
+8. **Xuất Excel / CSV** theo đúng thứ tự và bộ lọc đang xem. Tab **Bị loại** cho biết bài nào bị loại và vì sao.
 
 ## Cách hoạt động
 

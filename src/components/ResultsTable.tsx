@@ -9,7 +9,24 @@ import {
 } from '@/lib/labels';
 import type { SortDirection } from '@/lib/sort';
 import { SOURCE_LANGUAGE, type ArticleResult, type HighlightRange } from '@/lib/types';
+import { Fragment, useState } from 'react';
 import { ExternalIcon, SortIcon } from './icons';
+import { SeoDetails, SeoToggle } from './SeoDetails';
+
+/** Các kết quả đang mở "Chi tiết SEO" */
+export function useOpenSet() {
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const toggle = (id: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  return [open, toggle] as const;
+}
+
+/** id phần tử HTML an toàn cho một kết quả (id gốc là URL) */
+export const seoPanelId = (index: number) => `seo-${index}`;
 
 const CONFIDENCE_STYLES: Record<Confidence, string> = {
   high: 'bg-ok-soft text-ok',
@@ -81,6 +98,7 @@ interface Props {
 }
 
 export function ResultsTable({ items, sortDir, onToggleSort }: Props) {
+  const [openSeo, toggleSeo] = useOpenSet();
   return (
     <div className="overflow-x-auto rounded-2xl bg-surface shadow-card ring-1 ring-line">
       <table className="w-full min-w-250 border-collapse text-sm">
@@ -119,45 +137,58 @@ export function ResultsTable({ items, sortDir, onToggleSort }: Props) {
         </thead>
         <tbody>
           {items.map((item, i) => (
-            <tr key={item.id} className="border-t border-line align-top transition-colors hover:bg-surface-muted/40">
-              <td className="px-4 py-3.5 text-muted tabular-nums">{i + 1}</td>
-              <td className="px-3 py-3.5">
-                <DateInfo item={item} />
-              </td>
-              <td className="px-3 py-3.5 font-medium text-pretty">
-                <a href={item.url} target="_blank" rel="noopener noreferrer" className="hover:text-accent hover:underline">
-                  {item.title || item.url}
-                </a>
-              </td>
-              <td className="px-3 py-3.5">
-                <div>{item.sourceName ?? item.domain}</div>
-                {item.sourceName && <div className="text-xs break-all text-muted">{item.domain}</div>}
-              </td>
-              <td className="px-3 py-3.5">
-                <div className="whitespace-nowrap">{REGION_LABELS[item.region]}</div>
-                {item.matchedLanguage !== SOURCE_LANGUAGE && (
-                  <div className="text-xs text-muted" title={`Khớp “${item.matchedVariant}”`}>
-                    {matchSourceLabel(item.matchedLanguage)}
+            <Fragment key={item.id}>
+              <tr className="border-t border-line align-top transition-colors hover:bg-surface-muted/40">
+                <td className="px-4 py-3.5 text-muted tabular-nums">{i + 1}</td>
+                <td className="px-3 py-3.5">
+                  <DateInfo item={item} />
+                </td>
+                <td className="px-3 py-3.5 font-medium text-pretty">
+                  <a href={item.url} target="_blank" rel="noopener noreferrer" className="hover:text-accent hover:underline">
+                    {item.title || item.url}
+                  </a>
+                  <div>
+                    <SeoToggle open={openSeo.has(item.id)} onToggle={() => toggleSeo(item.id)} controls={seoPanelId(i)} />
                   </div>
-                )}
-                {item.foundVia !== 'google' && <div className="text-xs text-muted">qua {engineLabel(item.foundVia)}</div>}
-              </td>
-              <td className="px-3 py-3.5 leading-relaxed text-muted">
-                <Highlighted text={item.snippet} ranges={item.highlights} />
-                <MatchInfo item={item} />
-              </td>
-              <td className="px-3 py-3.5">
-                <a
-                  href={item.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 rounded whitespace-nowrap text-accent hover:underline focus-visible:ring-3 focus-visible:ring-accent/30 focus-visible:outline-none"
-                  title={item.url}
-                >
-                  Mở <ExternalIcon className="size-3.5" />
-                </a>
-              </td>
-            </tr>
+                </td>
+                <td className="px-3 py-3.5">
+                  <div>{item.sourceName ?? item.domain}</div>
+                  {item.sourceName && <div className="text-xs break-all text-muted">{item.domain}</div>}
+                </td>
+                <td className="px-3 py-3.5">
+                  <div className="whitespace-nowrap">{REGION_LABELS[item.region]}</div>
+                  {item.matchedLanguage !== SOURCE_LANGUAGE && (
+                    <div className="text-xs text-muted" title={`Khớp “${item.matchedVariant}”`}>
+                      {matchSourceLabel(item.matchedLanguage)}
+                    </div>
+                  )}
+                  {item.foundVia !== 'google' && <div className="text-xs text-muted">qua {engineLabel(item.foundVia)}</div>}
+                </td>
+                <td className="px-3 py-3.5 leading-relaxed text-muted">
+                  <Highlighted text={item.snippet} ranges={item.highlights} />
+                  <MatchInfo item={item} />
+                </td>
+                <td className="px-3 py-3.5">
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded whitespace-nowrap text-accent hover:underline focus-visible:ring-3 focus-visible:ring-accent/30 focus-visible:outline-none"
+                    title={item.url}
+                  >
+                    Mở <ExternalIcon className="size-3.5" />
+                  </a>
+                </td>
+              </tr>
+              {openSeo.has(item.id) && (
+                <tr className="align-top">
+                  <td />
+                  <td colSpan={6} className="px-3 pb-4">
+                    <SeoDetails seo={item.seo} id={seoPanelId(i)} />
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
         </tbody>
       </table>
