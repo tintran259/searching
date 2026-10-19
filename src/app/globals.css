@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+/* Một họ xám lạnh duy nhất + một màu nhấn (xanh mực, giảm độ bão hoà) */
+:root {
+  color-scheme: light;
+  --bg: #f4f5f8;
+  --surface: #ffffff;
+  --surface-muted: #eef0f4;
+  --line: #e1e4eb;
+  --fg: #12151b;
+  --fg-muted: #5c6371;
+  --accent: #2151b8;
+  --accent-hover: #1a4399;
+  --accent-fg: #ffffff;
+  --accent-soft: #e9eefa;
+  --mark: #fde68a;
+  --mark-line: #d29a06;
+  --ok: #146c36;
+  --ok-soft: #e3f3e8;
+  --warn: #8a4f00;
+  --warn-soft: #fcefd6;
+  --bad: #b42318;
+  --bad-soft: #fdeceb;
+  --shadow-tint: 33 81 184;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0e1015;
+    --surface: #161920;
+    --surface-muted: #1d2129;
+    --line: #2a2f3a;
+    --fg: #e7e9ee;
+    --fg-muted: #9aa2b1;
+    --accent: #7aa5ff;
+    --accent-hover: #98b9ff;
+    --accent-fg: #0b1220;
+    --accent-soft: #1a2747;
+    --mark: #6e5512;
+    --mark-line: #c99a2e;
+    --ok: #63cf8c;
+    --ok-soft: #13301f;
+    --warn: #f0b75e;
+    --warn-soft: #382910;
+    --bad: #ff8b80;
+    --bad-soft: #3c1816;
+    --shadow-tint: 0 0 0;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--fg-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --font-sans: var(--font-be-vietnam), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+  /* Bóng đổ nhuốm màu nhấn thay vì đen thuần */
+  --shadow-card: 0 1px 2px rgb(var(--shadow-tint) / 0.05), 0 12px 32px -18px rgb(var(--shadow-tint) / 0.22);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background:
+    radial-gradient(1100px 420px at 0% -12%, var(--accent-soft), transparent 62%),
+    var(--bg);
+  background-attachment: fixed;
+  color: var(--fg);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+mark {
+  background: var(--mark);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* Từ phụ (không bắt buộc): gạch chân thay vì tô nền, để phân biệt với từ khoá bắt buộc */
+mark.optional {
+  background: none;
+  padding: 0;
+  text-decoration: underline 2px var(--mark-line);
+  text-underline-offset: 3px;
+  text-decoration-skip-ink: none;
+}
+
+/* Ô chọn ngày: icon lịch theo màu chữ */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+/* Popup "Đặt làm từ khoá chính" khi bôi đen trong ô tìm kiếm */
+.query-popup {
+  animation: query-popup-in 140ms ease-out;
+}
+
+@keyframes query-popup-in {
+  from {
+    opacity: 0;
+    margin-top: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .query-popup {
+    animation: none;
+  }
+}
+
+/* Từ khoá chính trong ô tìm kiếm: đậm (giả bằng viền chữ để không đổi độ rộng, giữ khớp với con trỏ) + màu nhấn */
+.query-keyword {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  -webkit-text-stroke: 0.04em currentColor;
+  paint-order: stroke fill;
+}

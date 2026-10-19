@@ -1,0 +1,45 @@
+{
+  "name": "searching",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ant-design/cssinjs": "^2.1.2",
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@mozilla/readability": "^0.6.0",
+    "antd": "^6.6.6",
+    "dayjs": "^1.11.23",
+    "exceljs": "^4.4.0",
+    "jsdom": "^28.1.0",
+    "next": "16.4.0",
+    "p-limit": "^7.3.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "robots-parser": "^3.0.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/jsdom": "^28.0.3",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
+  },
+  "description": "Tìm và thu thập link bài viết/bài báo nhắc tới một người hoặc cụm từ, sắp xếp từ cũ đến mới",
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
+  }
+}
