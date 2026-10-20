@@ -6,6 +6,7 @@ import { LogoMark } from './icons';
 import { ProgressPanel } from './ProgressPanel';
 import { ResultsSection } from './ResultsSection';
 import { SearchForm } from './SearchForm';
+import { useBrowserToday } from './useBrowserToday';
 import { useSearchQuota } from './useSearchQuota';
 import { useSearchStream } from './useSearchStream';
 
@@ -37,7 +38,9 @@ function QuotaBadge({ quota }: { quota: SearchQuota | null }) {
   );
 }
 
-export default function SearchApp({ today }: { today: string }) {
+/** `serverToday`: ngày lúc prerender, chỉ hiện tạm trước khi trình duyệt chạy; sau đó dùng ngày theo giờ trình duyệt */
+export default function SearchApp({ today: serverToday }: { today: string }) {
+  const today = useBrowserToday(serverToday);
   const { state, start, stop } = useSearchStream();
   // Đọc lại lượt tìm còn lại khi bắt đầu và khi kết thúc mỗi lượt tìm
   const quota = useSearchQuota(state.status);

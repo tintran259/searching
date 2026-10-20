@@ -9,7 +9,7 @@ import { ClientOnly } from './ClientOnly';
 interface Props {
   from: string;
   to: string;
-  /** Hôm nay (giờ Việt Nam), YYYY-MM-DD */
+  /** Hôm nay theo giờ trình duyệt, YYYY-MM-DD */
   today: string;
   disabled?: boolean;
   onChange: (from: string, to: string) => void;

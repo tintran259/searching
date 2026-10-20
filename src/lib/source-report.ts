@@ -1,13 +1,14 @@
 /** Câu giải thích cho từng dòng báo cáo nguồn (dùng chung cho bảng tiến trình và file xuất) */
 import { engineLabel, languageLabel } from './labels';
 import type { SearchEngine } from './search/types';
-import type { SourceReport } from './types';
+import type { SearchVertical, SourceReport } from './types';
 
 export type NoteTone = 'ok' | 'warn' | 'bad' | 'muted';
 
-/** "Tiếng Nga · Yandex" */
-export function sourceLabel(language: string, engine: SearchEngine): string {
-  return `${languageLabel(language)} · ${engineLabel(engine)}`;
+/** "Tiếng Nga · Yandex", "Tiếng Anh · Google News", "Tiếng Anh · Google (truy vấn bổ sung)" */
+export function sourceLabel(language: string, engine: SearchEngine, vertical: SearchVertical = 'web', tier: 1 | 2 = 1): string {
+  if (vertical === 'news') return `${languageLabel(language)} · Google News`;
+  return `${languageLabel(language)} · ${engineLabel(engine)}${tier === 2 ? ' (truy vấn bổ sung)' : ''}`;
 }
 
 /** Số bài của nguồn còn đang chờ kiểm tra */
@@ -31,6 +32,8 @@ export function sourceNote(r: SourceReport, finished: boolean): { tone: NoteTone
     case 'stopped':
       if (r.returned === 0) return { tone: 'muted', text: 'Đã dừng trước khi tìm nguồn này.' };
       break;
+    case 'skipped':
+      return { tone: 'warn', text: 'Không tìm vì đã dùng hết số lượt tìm tối đa của lượt này.' };
     case 'failed':
       return { tone: 'bad', text: `Lỗi khi tìm${r.returned ? ` (đã lấy ${r.returned} kết quả)` : ''}: ${r.error ?? 'không rõ'}` };
   }
@@ -42,7 +45,9 @@ export function sourceNote(r: SourceReport, finished: boolean): { tone: NoteTone
   const valid = r.accepted ? `${r.accepted} bài hợp lệ` : 'không bài nào hợp lệ (xem lý do ở tab Bị loại)';
   if (r.status === 'stopped') return { tone: 'warn', text: `Đã dừng giữa chừng sau ${r.returned} kết quả; ${valid}.` };
   if (r.returned < r.requested) {
-    const why = r.exhausted ? `${engine} không còn kết quả nào khác` : `${engine} trả ít hơn số yêu cầu`;
+    const why = r.exhausted
+      ? `${engine} không còn kết quả nào khác trong khoảng ngày đã chọn`
+      : `${engine} trả ít hơn số yêu cầu`;
     return { tone: 'warn', text: `Chỉ có ${r.returned}/${r.requested} kết quả: ${why}; ${valid}.` };
   }
   return { tone: r.accepted ? 'ok' : 'warn', text: `Đủ ${r.requested} kết quả; ${valid}.` };

@@ -16,6 +16,12 @@ describe('parseSearchParams', () => {
         pagesPerSource: 1,
         languages: [],
         localEngines: false,
+        budget: 10,
+        exclude: [],
+        sourcePolicy: 'labeled',
+        excludeRepublished: true,
+        allowDomains: [],
+        denyDomains: [],
       },
     });
   });
@@ -33,7 +39,28 @@ describe('parseSearchParams', () => {
         pagesPerSource: 5,
         languages: ['en', 'ru', 'zh-CN'],
         localEngines: true,
+        budget: 10,
+        exclude: [],
+        sourcePolicy: 'labeled',
+        excludeRepublished: true,
+        allowDomains: [],
+        denyDomains: [],
       },
+    });
+    if (parsed.ok) expect(parse(toQueryString(parsed.params))).toEqual(parsed);
+  });
+
+  it('ngân sách lượt tìm, cụm loại trừ, chính sách nguồn và danh sách domain', () => {
+    const parsed = parse(
+      `q=a&budget=30&exclude=${encodeURIComponent('bóng đá, xổ số')}&policy=verified&republished=0&allow=${encodeURIComponent('https://www.MirageNews.com/x, b.org')}&deny=c.net`,
+    );
+    expect(parsed.ok && parsed.params).toMatchObject({
+      budget: 30,
+      exclude: ['bóng đá', 'xổ số'],
+      sourcePolicy: 'verified',
+      excludeRepublished: false,
+      allowDomains: ['miragenews.com', 'b.org'],
+      denyDomains: ['c.net'],
     });
     if (parsed.ok) expect(parse(toQueryString(parsed.params))).toEqual(parsed);
   });
@@ -62,6 +89,9 @@ describe('parseSearchParams', () => {
     ['q=a&from=01/02/2019', 'Ngày không hợp lệ'],
     ['q=a&pages=0', 'Số kết quả mỗi ngôn ngữ'],
     ['q=a&pages=11', 'Số kết quả mỗi ngôn ngữ'],
+    ['q=a&budget=0', 'Số lượt tìm tối đa'],
+    ['q=a&budget=101', 'Số lượt tìm tối đa'],
+    ['q=a&policy=any', 'Chính sách nguồn'],
     ['q=a&langs=en,xx', 'Ngôn ngữ chưa hỗ trợ: xx'],
     ['q=a&region=foreign', 'chọn ít nhất một ngôn ngữ'],
     [`q=${'a'.repeat(121)}`, 'tối đa'],

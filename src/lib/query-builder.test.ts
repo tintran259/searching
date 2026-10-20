@@ -5,6 +5,7 @@ import {
   buildQueryPlan,
   buildSearchQuery,
   cleanPhrase,
+  hasMeaningfulOptional,
   optionalWords,
   removeDiacritics,
   searchLocaleFor,
@@ -236,5 +237,25 @@ describe('withTranslations', () => {
       ['vi', [], 'Chuyến thăm ABC của thủ tướng'],
       ['en', [], "Prime Minister's visit to ABC"],
     ]);
+  });
+});
+
+describe('nhóm OR, cụm loại trừ, mục Tin tức, từ phụ quá chung', () => {
+  it('`Bỉ | Brussels`: mỗi lựa chọn là một biến thể của cùng từ khoá', () => {
+    const plan = buildQueryPlan('`Tô Lâm` `Bỉ | Brussels`', 'domestic', { exclude: ['bóng đá'] });
+    expect(plan.groups[0].terms).toEqual([term('Tô Lâm'), { text: 'Bỉ | Brussels', variants: ['Bỉ', 'Brussels'] }]);
+    expect(plan.groups[0].searchQuery).toBe('"Tô Lâm" ("Bỉ" OR "Brussels") -"bóng đá"');
+  });
+
+  it('mục Tin tức của Google không dùng được site: → không thêm -site:', () => {
+    const terms = [term('To Lam')];
+    expect(buildSearchQuery(terms, [], 'foreign')).toMatch(/^"To Lam" -site:vn /);
+    expect(buildSearchQuery(terms, [], 'foreign', { vertical: 'news' })).toBe('"To Lam"');
+  });
+
+  it('từ phụ chỉ gồm từ quá chung ("đi", "về") thì không đáng dịch', () => {
+    expect(hasMeaningfulOptional(['đi'])).toBe(false);
+    expect(hasMeaningfulOptional(['đi về'])).toBe(false);
+    expect(hasMeaningfulOptional(['thăm chính thức'])).toBe(true);
   });
 });

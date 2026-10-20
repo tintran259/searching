@@ -19,6 +19,10 @@ const article = (overrides: Partial<ArticleResult> = {}): ArticleResult => ({
   foundLanguage: 'vi',
   foundVia: 'google',
   seo: null,
+  verification: 'verified',
+  conditions: [{ term: 'Trần Văn A', status: 'matched_exact', variant: 'Trần Văn A', where: 'main' }],
+  publisher: { country: 'vn', verified: true, language: 'vi', kind: 'news', origin: 'unknown', signals: ['Tên miền .vn'] },
+  foundBy: ['Tiếng Việt · Google'],
   ...overrides,
 });
 
@@ -27,18 +31,22 @@ describe('toCsv', () => {
     const csv = toCsv([article()]);
     expect(
       csv.startsWith(
-        '﻿STT,Ngày đăng,Nguồn ngày,Độ tin cậy,Tiêu đề,Báo,Domain,Phạm vi,Khớp theo,Biến thể khớp,Từ phụ khớp,Tìm qua,Đoạn trích,Link,Tiêu đề SEO,Mô tả (meta description),Ảnh đại diện,Tác giả,Chuyên mục,Từ khoá SEO,Canonical,Ngày cập nhật,Số từ\r\n',
+        '﻿STT,Ngày đăng,Nguồn ngày,Độ tin cậy,Tiêu đề,Báo,Domain,Phạm vi,Khớp theo,Biến thể khớp,Từ phụ khớp,Tìm qua,Đoạn trích,Link,Xác minh,Từ khoá bắt buộc,Quốc gia nguồn,Nguồn đã xác minh,Nguồn gốc,Tín hiệu nguồn,Tiêu đề SEO,Mô tả (meta description),Ảnh đại diện,Tác giả,Chuyên mục,Từ khoá SEO,Canonical,Ngày cập nhật,Số từ\r\n',
       ),
     ).toBe(true);
     expect(csv).toContain(
-      '1,2019-05-12,Meta tag,Tin cậy cao,"Ông Trần Văn A, ""người hùng"" thầm lặng",VnExpress,vnexpress.net,Trong nước,Từ khoá gốc,Trần Văn A,,Tiếng Việt · Google,"…ông Trần Văn A cho biết,\nhôm nay…",https://vnexpress.net/a.html,,,,,,,,,',
+      '1,2019-05-12,Meta tag,Tin cậy cao,"Ông Trần Văn A, ""người hùng"" thầm lặng",VnExpress,vnexpress.net,Trong nước,Từ khoá gốc,Trần Văn A,,Tiếng Việt · Google,"…ông Trần Văn A cho biết,\nhôm nay…",https://vnexpress.net/a.html,Đã xác minh nội dung,Trần Văn A: có nguyên văn (nội dung),Việt Nam,Có,Chưa rõ nguồn gốc,Tên miền .vn,,,,,,,,,',
     );
   });
 
   it('ghi rõ bài khớp nhờ bản dịch nào', () => {
     const csv = toCsv([article({ region: 'foreign', matchedLanguage: 'ru', matchedVariant: 'Чан Ван А' })]);
     expect(csv).toContain(',Ngoài nước,Bản dịch tiếng Nga,Чан Ван А,');
-    expect(toCsv([article({ foundLanguage: 'ru', foundVia: 'yandex' })])).toContain(',Trần Văn A,,Tiếng Nga · Yandex,');
+    expect(toCsv([article({ foundLanguage: 'ru', foundVia: 'yandex', foundBy: [] })])).toContain(',Trần Văn A,,Tiếng Nga · Yandex,');
+    // Nhiều nguồn cùng tìm ra một bài
+    expect(toCsv([article({ foundBy: ['Tiếng Anh · Google', 'Tiếng Anh · Google News'] })])).toContain(
+      ',"Tiếng Anh · Google, Tiếng Anh · Google News",',
+    );
   });
 
   it('ghi số từ phụ có trong bài', () => {
@@ -69,7 +77,7 @@ describe('toCsv', () => {
       }),
     ]);
     expect(csv).toContain(
-      ',https://vnexpress.net/a.html,Tiêu đề | VnExpress,Mô tả bài,https://vnexpress.net/a.jpg,Nguyễn Văn B,Thời sự,"Tô Lâm, Đan Mạch",https://vnexpress.net/a.html,2026-10-19,820',
+      ',Tên miền .vn,Tiêu đề | VnExpress,Mô tả bài,https://vnexpress.net/a.jpg,Nguyễn Văn B,Thời sự,"Tô Lâm, Đan Mạch",https://vnexpress.net/a.html,2026-10-19,820',
     );
   });
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { engineLabel, formatDate, languageLabel } from '@/lib/labels';
 import { sourceLabel, sourceNote, type NoteTone } from '@/lib/source-report';
-import type { QueryGroup, SourceReport } from '@/lib/types';
+import type { ProgressState, QueryGroup, SourceReport } from '@/lib/types';
 import { AlertIcon, ChevronDownIcon } from './icons';
 import type { SearchState, SearchStatus } from './useSearchStream';
 
@@ -132,7 +132,7 @@ function SourceTable({ sources, finished }: { sources: SourceReport[]; finished:
               return (
                 <tr key={r.id} className="border-b border-line/60 align-top last:border-0">
                   <td className="py-2 pr-3 font-medium whitespace-nowrap" title={r.query || undefined}>
-                    {sourceLabel(r.language, r.engine)}
+                    {sourceLabel(r.language, r.engine, r.vertical, r.tier)}
                   </td>
                   <td className="py-2 pr-3 text-right text-muted tabular-nums">{r.requested}</td>
                   <td className="py-2 pr-3 text-right tabular-nums">{num(r.returned, ran)}</td>
@@ -154,6 +154,41 @@ function SourceTable({ sources, finished }: { sources: SourceReport[]; finished:
   );
 }
 
+const percent = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : '–');
+
+/** Số đo của lượt tìm: chi phí SerpApi, tỉ lệ qua từng bước, thời gian từng bước */
+function MetricsDetails({ progress }: { progress: ProgressState }) {
+  const m = progress.metrics;
+  const fetched = m.fetchOk + m.fetchFailed;
+  const rows: [string, string][] = [
+    ['Truy vấn đã lập', `${m.queriesPlanned}${m.queriesDeduped ? ` (bỏ ${m.queriesDeduped} truy vấn trùng)` : ''}`],
+    ['Lượt tìm SerpApi', `${progress.searchCalls - progress.cachedCalls}/${m.budget} (+${progress.cachedCalls} từ bộ nhớ đệm)`],
+    ['Thử lại / lỗi tìm kiếm', `${m.retries} / ${m.searchErrors}`],
+    ['URL khác nhau', String(progress.candidates)],
+    ['Tỉ lệ trùng', percent(progress.duplicates, progress.candidates + progress.duplicates)],
+    ['Tải trang thành công', `${m.fetchOk}/${fetched} (${percent(m.fetchOk, fetched)})`],
+    ['Có đủ từ khoá', `${m.keywordPassed} bài`],
+    ['Nguồn đã xác minh', `${m.sourceVerified}/${progress.accepted} bài được nhận`],
+    ['Thời gian dịch / tìm / kiểm tra', `${formatDuration(m.translateMs)} / ${formatDuration(m.searchMs)} / ${formatDuration(m.verifyMs)}`],
+  ];
+  return (
+    <details className="group text-xs">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded text-muted transition hover:text-fg focus-visible:ring-3 focus-visible:ring-accent/30 focus-visible:outline-none [&::-webkit-details-marker]:hidden">
+        Số liệu của lượt tìm
+        <ChevronDownIcon className="size-3.5 transition-transform group-open:rotate-180" />
+      </summary>
+      <dl className="mt-3 grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-3 border-b border-line/60 pb-1">
+            <dt className="text-muted">{label}</dt>
+            <dd className="text-right font-medium tabular-nums">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
 export function ProgressPanel({ state }: { state: SearchState }) {
   const { progress, plan, params, warnings, error } = state;
   const translatedGroups = plan?.groups.slice(1) ?? [];
@@ -169,12 +204,15 @@ export function ProgressPanel({ state }: { state: SearchState }) {
         </div>
         {progress && (
           <dl className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-            <Stat label="Hợp lệ" value={progress.accepted} tone="text-ok" />
+            <Stat label="Đã xác minh" value={progress.accepted - progress.metrics.unverified} tone="text-ok" />
+            <Stat label="Chưa xác minh" value={progress.metrics.unverified} tone="text-warn" />
             <Stat label="Bị loại" value={progress.rejected} tone="text-bad" />
             <Stat label="Trùng" value={progress.duplicates} />
             <Stat
               label="Lượt tìm"
-              value={progress.cachedCalls ? `${progress.searchCalls} (${progress.cachedCalls} từ bộ nhớ đệm)` : progress.searchCalls}
+              value={`${progress.searchCalls - progress.cachedCalls}/${progress.metrics.budget}${
+                progress.cachedCalls ? ` (+${progress.cachedCalls} từ bộ nhớ đệm)` : ''
+              }`}
             />
           </dl>
         )}
@@ -206,6 +244,8 @@ export function ProgressPanel({ state }: { state: SearchState }) {
       )}
 
       {progress && progress.sources.length > 0 && <SourceTable sources={progress.sources} finished={finished} />}
+
+      {progress && finished && <MetricsDetails progress={progress} />}
 
       {plan && (
         <details className="group text-xs">

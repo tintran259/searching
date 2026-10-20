@@ -136,6 +136,38 @@ describe('SerpApiProvider', () => {
     ]);
   });
 
+  it('mục Tin tức của Google: tbm=nws, đọc news_results kèm tên báo và thời điểm đăng', async () => {
+    const { calls, fetchImpl } = stubFetch({
+      news_results: [
+        {
+          position: 1,
+          title: 'Top leader To Lam to visit Denmark, EU, Belgium',
+          link: 'https://english.vov.vn/en/politics/post1.vov',
+          source: 'VOV.VN',
+          date: '4 days ago',
+          published_at: '2026-10-15 10:37:00 UTC',
+          snippet: 'General Secretary…',
+        },
+      ],
+      serpapi_pagination: { next: 'https://serpapi.com/search.json?start=10' },
+    });
+    const res = await new SerpApiProvider('KEY', fetchImpl).search({ ...REQUEST, vertical: 'news' });
+    const params = new URL(calls[0]).searchParams;
+    expect([params.get('tbm'), params.get('tbs'), params.get('start')]).toEqual(['nws', 'cdr:1,cd_min:1/1/2019,cd_max:12/31/2019', '10']);
+    expect(res.items).toEqual([
+      {
+        url: 'https://english.vov.vn/en/politics/post1.vov',
+        title: 'Top leader To Lam to visit Denmark, EU, Belgium',
+        snippet: 'General Secretary…',
+        dateText: '4 days ago',
+        position: 1,
+        sourceName: 'VOV.VN',
+        publishedAt: '2026-10-15 10:37:00 UTC',
+      },
+    ]);
+    expect(res.hasMore).toBe(true);
+  });
+
   it('không có trang tiếp theo thì hasMore = false', async () => {
     const { fetchImpl } = stubFetch({ organic_results: [{ link: 'https://a.vn/x' }] });
     expect((await new SerpApiProvider('KEY', fetchImpl).search(REQUEST)).hasMore).toBe(false);

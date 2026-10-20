@@ -4,17 +4,22 @@
 import { SEARCH_LANGUAGES } from '@/config/languages';
 import { isValidIsoDate, shiftDate } from './date-range';
 import { formatDate } from './labels';
-import { canonicalQuery, parseQuery } from './query-syntax';
+import { canonicalQuery, parseList, parseQuery } from './query-syntax';
 import type { SearchParams } from './types';
 
 export const SEARCH_LIMITS = {
   minDate: '1990-01-01',
-  /** Mặc định tìm bài mới nhất: từ hôm qua đến hôm nay (giờ Việt Nam) */
+  /** Mặc định tìm bài mới nhất: từ hôm qua đến hôm nay (giờ trình duyệt) */
   defaultFromDaysAgo: 1,
   /** Mặc định 10 kết quả (1 lượt tìm) cho mỗi nguồn */
   defaultPagesPerSource: 1,
   maxPagesPerSource: 10,
   maxQueryLength: 120,
+  /** Số lượt SerpApi tối đa cho một lượt tìm: mặc định thấp vì gói miễn phí chỉ có 250 lượt/tháng */
+  defaultBudget: 10,
+  maxBudget: 100,
+  budgetOptions: [5, 10, 20, 30, 50, 100],
+  maxListItems: 30,
 } as const;
 
 export type ParsedSearchParams = { ok: true; params: SearchParams } | { ok: false; error: string };
@@ -37,7 +42,7 @@ export function defaultFromDate(today: string): string {
   return shiftDate(today, { days: -SEARCH_LIMITS.defaultFromDaysAgo });
 }
 
-/** `today` (YYYY-MM-DD, giờ Việt Nam) là giới hạn trên của khoảng ngày */
+/** `today` (YYYY-MM-DD) là giới hạn trên của khoảng ngày */
 export function parseSearchParams(sp: URLSearchParams, today: string): ParsedSearchParams {
   const fail = (error: string): ParsedSearchParams => ({ ok: false, error });
   // Giữ dấu `: phần trong dấu là từ khoá chính (bắt buộc), phần còn lại là từ phụ
@@ -80,7 +85,54 @@ export function parseSearchParams(sp: URLSearchParams, today: string): ParsedSea
   // local=1: tìm thêm trên Baidu / Yandex / Naver (chỉ có tác dụng khi phạm vi Ngoài nước)
   const localEngines = ['1', 'true'].includes(sp.get('local') ?? '');
 
-  return { ok: true, params: { query, region, fromDate, toDate, pagesPerSource, languages, localEngines } };
+  // budget=N: số lượt SerpApi tối đa cho cả lượt tìm
+  const budget = readInt(sp.get('budget'), SEARCH_LIMITS.defaultBudget);
+  if (!(budget >= 1 && budget <= SEARCH_LIMITS.maxBudget)) {
+    return fail(`Số lượt tìm tối đa phải từ 1 đến ${SEARCH_LIMITS.maxBudget}.`);
+  }
+
+  // exclude=a,b · allow=x.com,y.org · deny=…: danh sách cách nhau bằng dấu phẩy
+  const exclude = parseList(sp.get('exclude'));
+  const allowDomains = parseList(sp.get('allow')).map(cleanDomain).filter(Boolean);
+  const denyDomains = parseList(sp.get('deny')).map(cleanDomain).filter(Boolean);
+  if ([exclude, allowDomains, denyDomains].some((l) => l.length > SEARCH_LIMITS.maxListItems)) {
+    return fail(`Mỗi danh sách loại trừ / domain có tối đa ${SEARCH_LIMITS.maxListItems} mục.`);
+  }
+
+  // policy=labeled (mặc định): nhận mọi domain có đủ nội dung; verified: chỉ nhận báo có bằng chứng quốc gia
+  const policy = sp.get('policy') ?? 'labeled';
+  if (policy !== 'verified' && policy !== 'labeled') return fail('Chính sách nguồn phải là "verified" hoặc "labeled".');
+  // republished=0: giữ cả bài đăng lại / dịch lại từ báo Việt Nam (mặc định loại)
+  const excludeRepublished = !['0', 'false'].includes(sp.get('republished') ?? '');
+
+  return {
+    ok: true,
+    params: {
+      query,
+      region,
+      fromDate,
+      toDate,
+      pagesPerSource,
+      languages,
+      localEngines,
+      budget,
+      exclude,
+      sourcePolicy: policy,
+      excludeRepublished,
+      allowDomains,
+      denyDomains,
+    },
+  };
+}
+
+/** "https://www.Example.com/abc" → "example.com" */
+function cleanDomain(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/^[a-z]+:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/[/?#].*$/, '')
+    .trim();
 }
 
 export function toQueryString(params: SearchParams): string {
@@ -93,5 +145,11 @@ export function toQueryString(params: SearchParams): string {
   });
   if (params.languages.length) qs.set('langs', params.languages.join(','));
   if (params.localEngines) qs.set('local', '1');
+  if (params.budget) qs.set('budget', String(params.budget));
+  if (params.exclude?.length) qs.set('exclude', params.exclude.join(','));
+  if (params.sourcePolicy && params.sourcePolicy !== 'labeled') qs.set('policy', params.sourcePolicy);
+  if (params.excludeRepublished === false) qs.set('republished', '0');
+  if (params.allowDomains?.length) qs.set('allow', params.allowDomains.join(','));
+  if (params.denyDomains?.length) qs.set('deny', params.denyDomains.join(','));
   return qs.toString();
 }

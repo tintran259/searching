@@ -11,7 +11,8 @@ import { ResultCards } from './ResultCards';
 import { ResultsTable } from './ResultsTable';
 import type { SearchState } from './useSearchStream';
 
-type Tab = 'results' | 'rejected';
+/** Đã xác minh: đã đọc nội dung trang; Chưa xác minh: chỉ có tiêu đề + đoạn trích Google (mạng xã hội, trang không tải được) */
+type Tab = 'verified' | 'unverified' | 'rejected';
 
 const fold = (text: string) => removeDiacritics(text).toLowerCase();
 
@@ -40,17 +41,28 @@ function ResultsSkeleton() {
 }
 
 export function ResultsSection({ state }: { state: SearchState }) {
-  const [tab, setTab] = useState<Tab>('results');
+  // null: chưa tự chọn tab → tự hiện tab có bài (Đã xác minh trống mà Chưa xác minh có bài thì mở tab đó)
+  const [pickedTab, setTab] = useState<Tab | null>(null);
   const [sortDir, setSortDir] = useState<SortDirection>('asc');
   const [filter, setFilter] = useState('');
-  const sorted = useMemo(() => sortArticles(state.results, sortDir), [state.results, sortDir]);
+  const groups = useMemo(
+    () => ({
+      verified: state.results.filter((r) => r.verification === 'verified'),
+      unverified: state.results.filter((r) => r.verification === 'unverified'),
+    }),
+    [state.results],
+  );
+  const tab: Tab = pickedTab ?? (groups.verified.length === 0 && groups.unverified.length > 0 ? 'unverified' : 'verified');
+  const current = tab === 'unverified' ? groups.unverified : groups.verified;
+  const sorted = useMemo(() => sortArticles(current, sortDir), [current, sortDir]);
   const visible = useMemo(() => filterArticles(sorted, filter), [sorted, filter]);
   const toggleSort = () => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
   const running = state.status === 'running';
 
-  const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: 'results', label: 'Kết quả', count: state.results.length },
-    { id: 'rejected', label: 'Bị loại', count: state.rejected.length },
+  const tabs: { id: Tab; label: string; count: number; tone: string }[] = [
+    { id: 'verified', label: 'Đã xác minh', count: groups.verified.length, tone: 'bg-ok-soft text-ok' },
+    { id: 'unverified', label: 'Chưa xác minh', count: groups.unverified.length, tone: 'bg-warn-soft text-warn' },
+    { id: 'rejected', label: 'Bị loại', count: state.rejected.length, tone: 'bg-bad-soft text-bad' },
   ];
 
   let resultsBody;
@@ -65,22 +77,28 @@ export function ResultsSection({ state }: { state: SearchState }) {
         </div>
       </>
     );
-  } else if (running && state.results.length === 0) {
+  } else if (running && current.length === 0) {
     resultsBody = <ResultsSkeleton />;
   } else {
+    let empty = 'Không có bài nào khớp từ khoá đã nhập. Xem tab “Bị loại” để biết lý do từng bài.';
+    if (current.length > 0) empty = `Không có bài nào khớp bộ lọc “${filter}”.`;
+    else if (tab === 'unverified') empty = 'Không có bài nào chỉ dựa trên tiêu đề / đoạn trích của Google.';
+    else if (groups.unverified.length) empty = `Chưa có bài nào đọc được nội dung để xác minh. Xem tab “Chưa xác minh” (${groups.unverified.length} bài).`;
     resultsBody = (
-      <div className="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-pretty text-muted">
-        {state.results.length > 0
-          ? `Không có bài nào khớp bộ lọc “${filter}”.`
-          : 'Không có bài nào khớp từ khoá đã nhập. Xem tab “Bị loại” để biết lý do từng bài.'}
-      </div>
+      <div className="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-pretty text-muted">{empty}</div>
     );
   }
+  const unverifiedNote = tab === 'unverified' && current.length > 0 && (
+    <p className="text-sm text-pretty text-muted">
+      Các bài dưới đây chỉ được kiểm tra trên tiêu đề và đoạn trích Google trả về (bài đăng mạng xã hội, hoặc trang chặn bot /
+      không tải được), nên chưa khẳng định từ khoá có trong nội dung. Mở link để tự kiểm tra.
+    </p>
+  );
 
   return (
     <section id="ket-qua" aria-label="Kết quả tìm kiếm" className="flex scroll-mt-20 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div role="tablist" aria-label="Danh sách" className="inline-flex rounded-xl bg-surface-muted p-1 ring-1 ring-line">
+        <div role="tablist" aria-label="Danh sách" className="inline-flex max-w-full overflow-x-auto rounded-xl bg-surface-muted p-1 ring-1 ring-line">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -90,15 +108,13 @@ export function ResultsSection({ state }: { state: SearchState }) {
               aria-selected={tab === t.id}
               aria-controls={`panel-${t.id}`}
               onClick={() => setTab(t.id)}
-              className={`inline-flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-semibold transition focus-visible:ring-3 focus-visible:ring-accent/30 focus-visible:outline-none ${
+              className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold whitespace-nowrap transition sm:px-4 focus-visible:ring-3 focus-visible:ring-accent/30 focus-visible:outline-none ${
                 tab === t.id ? 'bg-surface text-fg shadow-card' : 'text-muted hover:text-fg'
               }`}
             >
               {t.label}
               <span
-                className={`rounded-md px-1.5 text-xs tabular-nums ${
-                  tab === t.id ? (t.id === 'results' ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad') : 'bg-line/70'
-                }`}
+                className={`rounded-md px-1.5 text-xs tabular-nums ${tab === t.id ? t.tone : 'bg-line/70'}`}
               >
                 {t.count}
               </span>
@@ -106,7 +122,7 @@ export function ResultsSection({ state }: { state: SearchState }) {
           ))}
         </div>
 
-        {tab === 'results' && (
+        {tab !== 'rejected' && (
           <div className="flex flex-wrap items-center gap-2">
             <label className="relative">
               <span className="sr-only">Lọc kết quả</span>
@@ -127,13 +143,31 @@ export function ResultsSection({ state }: { state: SearchState }) {
               <SortIcon direction={sortDir} className="size-4" />
               {sortDir === 'asc' ? 'Cũ → mới' : 'Mới → cũ'}
             </button>
-            <ExportButtons articles={visible} rejected={state.rejected} query={state.plan?.phrase ?? state.params?.query ?? ''} />
+            <ExportButtons
+              scopes={[
+                { id: 'tab', label: tab === 'unverified' ? 'Tab Chưa xác minh' : 'Tab Đã xác minh', articles: visible },
+                {
+                  id: 'all',
+                  label: 'Cả đã xác minh và chưa xác minh',
+                  articles: filterArticles(sortArticles(state.results, sortDir), filter),
+                },
+              ]}
+              rejected={state.rejected}
+              query={state.plan?.phrase ?? state.params?.query ?? ''}
+            />
           </div>
         )}
       </div>
 
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
-        {tab === 'results' ? resultsBody : <RejectedList items={state.rejected} />}
+        {tab === 'rejected' ? (
+          <RejectedList items={state.rejected} />
+        ) : (
+          <div className="flex flex-col gap-3">
+            {unverifiedNote}
+            {resultsBody}
+          </div>
+        )}
       </div>
     </section>
   );

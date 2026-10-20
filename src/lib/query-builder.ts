@@ -3,7 +3,7 @@
  */
 import { SEARCH_LANGUAGES, type LocalEngine } from '@/config/languages';
 import { normalizeText } from './matcher';
-import { canonicalQuery, parseQuery } from './query-syntax';
+import { canonicalQuery, parseQuery, termAlternatives } from './query-syntax';
 import { domesticDomainsOutsideVn } from './region';
 import type { SearchLocale } from './search/types';
 import { SOURCE_LANGUAGE, type QueryGroup, type QueryPlan, type QueryTerm, type Region } from './types';
@@ -102,15 +102,38 @@ export function optionalWords(phrases: string[], language: string = SOURCE_LANGU
   return uniqueIgnoringCase(words);
 }
 
+/**
+ * Động từ / từ chỉ hướng quá chung: dịch riêng thường lệch nghĩa ("đi" → "go", "идти") và kéo search engine
+ * về kết quả lạc chủ đề. Phần từ phụ chỉ gồm những từ này (và hư từ) thì không dịch.
+ */
+const GENERIC_WORDS_VI = new Set(['đi', 'về', 'đến', 'tới', 'ra', 'vào', 'lên', 'xuống', 'làm', 'gặp', 'nói', 'cùng', 'qua', 'sang']);
+
+/** Phần từ phụ có từ mang nghĩa riêng (không chỉ hư từ / từ quá chung) để đáng dịch sang ngôn ngữ khác */
+export function hasMeaningfulOptional(optional: string[]): boolean {
+  return optionalWords(optional, SOURCE_LANGUAGE).some((w) => !GENERIC_WORDS_VI.has(w.toLowerCase()));
+}
+
 const countWords = (query: string) => query.split(/\s+/).filter(Boolean).length;
 const quote = (v: string) => `"${v}"`;
+
+export interface SearchQueryOptions {
+  /** Cụm loại trừ: thêm -"cụm" vào truy vấn */
+  exclude?: string[];
+  /** Mục Tin tức của Google không dùng được site: → không thêm -site: */
+  vertical?: 'web' | 'news';
+}
 
 /**
  * Mỗi từ khoá bắt buộc bọc ngoặc kép (nhiều biến thể thì nối OR), từ phụ để nguyên cho Google xếp hạng.
  * Phạm vi "Ngoài nước" loại luôn báo trong nước ngay trong truy vấn (-site:vn, -site:vnexpress.net…)
  * để không phí suất kết quả của mỗi năm; pipeline vẫn lọc lại bằng classifyRegion.
  */
-export function buildSearchQuery(terms: QueryTerm[], optional: string[], region: Region): string {
+export function buildSearchQuery(
+  terms: QueryTerm[],
+  optional: string[],
+  region: Region,
+  { exclude = [], vertical = 'web' }: SearchQueryOptions = {},
+): string {
   const single = terms.length === 1 && optional.length === 0;
   let query = terms
     .map((t) => {
@@ -125,7 +148,13 @@ export function buildSearchQuery(terms: QueryTerm[], optional: string[], region:
     query += ` ${word}`;
     words += 1;
   }
-  if (region === 'foreign') {
+  for (const phrase of exclude) {
+    const n = countWords(phrase);
+    if (words + n > MAX_QUERY_WORDS) break;
+    query += ` -${quote(phrase)}`;
+    words += n;
+  }
+  if (region === 'foreign' && vertical === 'web') {
     for (const domain of ['vn', ...domesticDomainsOutsideVn()]) {
       if (words + 1 > MAX_QUERY_WORDS) break;
       query += ` -site:${domain}`;
@@ -151,12 +180,15 @@ export function buildLocalQuery(group: QueryGroup, engine: LocalEngine): string 
  * Kế hoạch truy vấn tiếng Việt (nhóm duy nhất; nhóm ngôn ngữ dịch được thêm bằng `withTranslations`).
  * Không đánh dấu gì thì nhóm không có từ khoá bắt buộc (tìm liên quan theo từ phụ).
  */
-export function buildQueryPlan(input: string, region: Region): QueryPlan {
+export function buildQueryPlan(input: string, region: Region, options: { exclude?: string[] } = {}): QueryPlan {
   const parsed = parseQuery(input);
   if (!parsed.required.length && !parsed.optional.length) throw new Error('Từ khoá đang trống');
+  // Nhóm OR (`Bỉ | Brussels`): mỗi lựa chọn là một biến thể của cùng từ khoá
   const terms = parsed.required.map((text) => ({
     text,
-    variants: region === 'foreign' ? buildNameVariants(text) : [text],
+    variants: uniqueIgnoringCase(
+      termAlternatives(text).flatMap((alt) => (region === 'foreign' ? buildNameVariants(alt) : [alt])),
+    ),
   }));
   return {
     phrase: canonicalQuery(parsed),
@@ -165,7 +197,7 @@ export function buildQueryPlan(input: string, region: Region): QueryPlan {
         language: SOURCE_LANGUAGE,
         terms,
         optional: parsed.optional,
-        searchQuery: buildSearchQuery(terms, parsed.optional, region),
+        searchQuery: buildSearchQuery(terms, parsed.optional, region, options),
       },
     ],
   };
@@ -177,6 +209,8 @@ export interface TranslatedQuery {
   terms: string[][];
   /** Bản dịch của phần từ phụ */
   optional: string[];
+  /** Các cách diễn đạt khác của phần từ phụ (bản dịch thứ 2, 3…) */
+  altOptional?: string[];
 }
 
 /**
@@ -185,7 +219,12 @@ export interface TranslatedQuery {
  * Đức, Indonesia): mỗi nước tìm bằng Google của nước đó và chỉ lấy trang viết bằng ngôn ngữ đó,
  * nên kết quả khác nhau.
  */
-export function withTranslations(plan: QueryPlan, translations: TranslatedQuery[], region: Region): QueryPlan {
+export function withTranslations(
+  plan: QueryPlan,
+  translations: TranslatedQuery[],
+  region: Region,
+  options: { exclude?: string[] } = {},
+): QueryPlan {
   const groups: QueryGroup[] = [...plan.groups];
   for (const t of translations) {
     const terms = t.terms.map((variants) => uniqueIgnoringCase(variants.map(cleanPhrase)));
@@ -194,7 +233,14 @@ export function withTranslations(plan: QueryPlan, translations: TranslatedQuery[
     const incomplete = terms.length !== plan.groups[0].terms.length || terms.some((variants) => variants.length === 0);
     if (incomplete || (terms.length === 0 && optional.length === 0)) continue;
     const queryTerms = terms.map((variants) => ({ text: variants[0], variants }));
-    groups.push({ language: t.language, terms: queryTerms, optional, searchQuery: buildSearchQuery(queryTerms, optional, region) });
+    const altOptional = (t.altOptional ?? []).map(cleanPhrase).filter((o) => o && !optional.includes(o));
+    groups.push({
+      language: t.language,
+      terms: queryTerms,
+      optional,
+      searchQuery: buildSearchQuery(queryTerms, optional, region, options),
+      ...(altOptional.length ? { altOptional } : {}),
+    });
   }
   return { ...plan, groups };
 }

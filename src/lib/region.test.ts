@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRegion, domesticDomainsOutsideVn, hostnameOf, isNonArticleUrl, sourceNameOf } from './region';
+import {
+  classifyRegion,
+  domesticDomainsOutsideVn,
+  hostnameOf,
+  isForeignVietnameseSource,
+  isHomePage,
+  socialPlatformOf,
+  sourceNameOf,
+} from './region';
 
 describe('classifyRegion', () => {
   it.each([
@@ -33,7 +41,7 @@ describe('classifyRegion', () => {
   });
 });
 
-describe('sourceNameOf / hostnameOf / isNonArticleUrl', () => {
+describe('sourceNameOf / hostnameOf / socialPlatformOf / isHomePage', () => {
   it('lấy tên báo theo cấu hình, khớp cả đường dẫn', () => {
     expect(sourceNameOf('https://www.bbc.com/vietnamese/articles/c123')).toBe('BBC News Tiếng Việt');
     expect(sourceNameOf('https://www.bbc.com/news/world')).toBeNull();
@@ -47,12 +55,21 @@ describe('sourceNameOf / hostnameOf / isNonArticleUrl', () => {
   });
 
   it('nhận diện mạng xã hội / nền tảng video', () => {
-    expect(isNonArticleUrl('https://www.facebook.com/abc/posts/1')).toBe(true);
-    expect(isNonArticleUrl('https://m.facebook.com/story.php?id=1')).toBe(true);
-    expect(isNonArticleUrl('https://youtu.be/abc')).toBe(true);
-    expect(isNonArticleUrl('https://x.com/abc/status/1')).toBe(true);
-    expect(isNonArticleUrl('https://box.com/abc')).toBe(false);
-    expect(isNonArticleUrl('https://vnexpress.net/abc')).toBe(false);
+    expect(socialPlatformOf('https://www.facebook.com/abc/posts/1')).toBe('Facebook');
+    expect(socialPlatformOf('https://m.facebook.com/story.php?id=1')).toBe('Facebook');
+    expect(socialPlatformOf('https://youtu.be/abc')).toBe('YouTube');
+    expect(socialPlatformOf('https://x.com/abc/status/1')).toBe('X (Twitter)');
+    expect(socialPlatformOf('https://box.com/abc')).toBeNull();
+    expect(socialPlatformOf('https://vnexpress.net/abc')).toBeNull();
+  });
+
+  it('báo nước ngoài viết tiếng Việt; trang chủ không phải bài viết', () => {
+    expect(isForeignVietnameseSource('https://www.bbc.com/vietnamese/articles/c123')).toBe(true);
+    expect(isForeignVietnameseSource('https://www.bbc.com/news/world')).toBe(false);
+    expect(isHomePage('https://medic.tula.ru/')).toBe(true);
+    expect(isHomePage('https://www.hrw.org')).toBe(true);
+    expect(isHomePage('https://www.hrw.org/news')).toBe(false);
+    expect(isHomePage('https://example.com/?p=123')).toBe(false);
   });
 
   it('liệt kê báo VN không đuôi .vn để loại khi tìm Ngoài nước', () => {
