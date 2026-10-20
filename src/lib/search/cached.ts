@@ -14,6 +14,7 @@ export function withCache(provider: SearchProvider, cache: Cache<SearchResponse>
         request.locale ?? null,
         // Google giữ khoá cũ để cache đã có vẫn dùng được
         ...(request.engine && request.engine !== 'google' ? [request.engine] : []),
+        ...(request.vertical === 'news' ? ['news'] : []),
       ]);
       const cached = await cache.get(key);
       if (cached) return { ...cached, fromCache: true };

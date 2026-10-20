@@ -24,6 +24,8 @@ export type SearchEngine = 'google' | 'baidu' | 'yandex' | 'naver';
 export interface SearchRequest {
   /** Mặc định google */
   engine?: SearchEngine;
+  /** Google: khung tìm kiếm web (mặc định) hay mục Tin tức (tbm=nws — không dùng được toán tử site:) */
+  vertical?: 'web' | 'news';
   /** Truy vấn đầy đủ (đã có ngoặc kép, OR, -site:…) */
   query: string;
   /** Trang kết quả, đếm từ 0 */
@@ -40,6 +42,10 @@ export interface SearchResultItem {
   /** Ngày search engine hiển thị cạnh kết quả (vd "12 thg 5, 2019"), nếu có */
   dateText: string | null;
   position: number;
+  /** Mục Tin tức: tên báo do Google ghi (vd "VnExpress International") */
+  sourceName?: string;
+  /** Mục Tin tức: thời điểm đăng (ISO, UTC) do Google ghi */
+  publishedAt?: string;
 }
 
 export interface SearchResponse {

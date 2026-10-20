@@ -5,7 +5,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import {
   KEYWORD_MARK,
   LOOSE_MIN_RATIO,
-  RELATED_MIN_RATIO,
   applyPlainEdit,
   looksLikePersonName,
   markRequired,
@@ -153,15 +152,19 @@ export function QueryInput({ value, onChange, disabled, action }: Props) {
         <code className="rounded bg-surface-muted px-1 font-mono">
           {KEYWORD_MARK}…{KEYWORD_MARK}
         </code>
+        . Chấp nhận một trong nhiều cách viết: dùng dấu | trong từ khoá chính, vd{' '}
+        <code className="rounded bg-surface-muted px-1 font-mono">
+          {KEYWORD_MARK}Bỉ | Brussels{KEYWORD_MARK}
+        </code>
         .
       </>
     );
   } else if (parsed.loose) {
     hint = `Chưa có từ khoá chính: tìm bài liên quan — có ít nhất ${Math.round(LOOSE_MIN_RATIO * 100)}% số từ đã nhập, không cần đúng thứ tự. Bôi đen phần cần chính xác để đặt làm từ khoá chính.`;
   } else if (parsed.optional.length === 0) {
-    hint = 'Bài phải có nguyên văn mọi từ khoá chính (có ổ khoá). Thêm vài từ mô tả nội dung (không đánh dấu) để chỉ lấy bài liên quan.';
+    hint = 'Bài phải có nguyên văn mọi từ khoá chính (có ổ khoá), ở tiêu đề hay trong nội dung đều được. Thêm vài từ mô tả nội dung (không đánh dấu) để Google tìm đúng chủ đề hơn.';
   } else {
-    hint = `Bài phải có nguyên văn mọi từ khoá chính (có ổ khoá) và ít nhất ${Math.round(RELATED_MIN_RATIO * 100)}% số từ còn lại (nội dung liên quan), không cần đúng thứ tự.`;
+    hint = 'Bài phải có nguyên văn mọi từ khoá chính (có ổ khoá), ở tiêu đề hay trong nội dung đều được. Các từ còn lại giúp Google tìm đúng chủ đề và để chấm mức liên quan, không bắt buộc.';
   }
 
   return (

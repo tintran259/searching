@@ -12,6 +12,7 @@ import { SOURCE_LANGUAGE, type ArticleResult, type HighlightRange } from '@/lib/
 import { Fragment, useState } from 'react';
 import { ExternalIcon, SortIcon } from './icons';
 import { SeoDetails, SeoToggle } from './SeoDetails';
+import { ConditionBadges, PublisherInfo } from './Verification';
 
 /** Các kết quả đang mở "Chi tiết SEO" */
 export function useOpenSet() {
@@ -154,6 +155,7 @@ export function ResultsTable({ items, sortDir, onToggleSort }: Props) {
                 <td className="px-3 py-3.5">
                   <div>{item.sourceName ?? item.domain}</div>
                   {item.sourceName && <div className="text-xs break-all text-muted">{item.domain}</div>}
+                  <PublisherInfo item={item} />
                 </td>
                 <td className="px-3 py-3.5">
                   <div className="whitespace-nowrap">{REGION_LABELS[item.region]}</div>
@@ -166,6 +168,7 @@ export function ResultsTable({ items, sortDir, onToggleSort }: Props) {
                 </td>
                 <td className="px-3 py-3.5 leading-relaxed text-muted">
                   <Highlighted text={item.snippet} ranges={item.highlights} />
+                  <ConditionBadges item={item} />
                   <MatchInfo item={item} />
                 </td>
                 <td className="px-3 py-3.5">

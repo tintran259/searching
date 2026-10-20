@@ -5,7 +5,7 @@
 import {
   DOMESTIC_SOURCES,
   FOREIGN_VIETNAMESE_SOURCES,
-  NON_ARTICLE_DOMAINS,
+  SOCIAL_PLATFORMS,
   type SourceEntry,
 } from '@/config/sources';
 import type { Region } from './types';
@@ -27,6 +27,7 @@ function compile(entries: SourceEntry[]): CompiledSource[] {
 
 const DOMESTIC = compile(DOMESTIC_SOURCES);
 const FOREIGN = compile(FOREIGN_VIETNAMESE_SOURCES);
+const SOCIAL = compile(SOCIAL_PLATFORMS);
 
 function parse(url: string): { host: string; path: string } | null {
   try {
@@ -63,9 +64,26 @@ export function sourceNameOf(url: string): string | null {
   return u ? (findIn(FOREIGN, u) ?? findIn(DOMESTIC, u))?.name ?? null : null;
 }
 
-export function isNonArticleUrl(url: string): boolean {
+/** Báo nước ngoài viết tiếng Việt (BBC Tiếng Việt, VOA…): được nhận khi tìm "Ngoài nước" dù bài viết bằng tiếng Việt */
+export function isForeignVietnameseSource(url: string): boolean {
   const u = parse(url);
-  return !!u && NON_ARTICLE_DOMAINS.some((d) => hostMatches(u.host, d));
+  return !!u && !!findIn(FOREIGN, u);
+}
+
+/** Tên mạng xã hội / nền tảng video của URL (null nếu không phải) */
+export function socialPlatformOf(url: string): string | null {
+  const u = parse(url);
+  return u ? findIn(SOCIAL, u)?.name ?? null : null;
+}
+
+/** Trang chủ của một trang web (không có đường dẫn, không có tham số): không phải bài viết */
+export function isHomePage(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.pathname.replace(/\/+$/, '') === '' && !u.search;
+  } catch {
+    return false;
+  }
 }
 
 /** Domain báo VN không đuôi .vn (cần loại riêng khi tìm "Ngoài nước") */

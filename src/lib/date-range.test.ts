@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isValidIsoDate, shiftDate, splitByYear, todayInVietnam } from './date-range';
+import { isValidIsoDate, latestTodayAnywhere, shiftDate, splitByYear, todayInTimeZone, todayInVietnam } from './date-range';
 
 describe('splitByYear', () => {
   it('chia theo năm, giữ đúng ngày đầu và cuối, từ năm xa nhất', () => {
@@ -31,6 +31,14 @@ describe('todayInVietnam', () => {
   it('đổi sang ngày theo giờ Việt Nam (GMT+7)', () => {
     expect(todayInVietnam(new Date('2026-10-14T18:30:00Z'))).toBe('2026-10-15');
     expect(todayInVietnam(new Date('2026-10-14T16:30:00Z'))).toBe('2026-10-14');
+  });
+});
+
+describe('todayInTimeZone / latestTodayAnywhere', () => {
+  it('theo múi giờ được chọn; UTC+14 là ngày muộn nhất', () => {
+    expect(todayInTimeZone('America/New_York', new Date('2026-10-21T02:00:00Z'))).toBe('2026-10-20');
+    expect(latestTodayAnywhere(new Date('2026-10-20T10:30:00Z'))).toBe('2026-10-21');
+    expect(latestTodayAnywhere(new Date('2026-10-20T09:30:00Z'))).toBe('2026-10-20');
   });
 });
 

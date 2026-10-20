@@ -40,6 +40,6 @@
   },
   "description": "Tìm và thu thập link bài viết/bài báo nhắc tới một người hoặc cụm từ, sắp xếp từ cũ đến mới",
   "engines": {
-    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
+    "node": "24.x"
   }
 }

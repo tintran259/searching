@@ -1,8 +1,9 @@
 /**
  * Cú pháp ô tìm kiếm (dùng được ở cả server và client):
  *  - Phần trong dấu huyền `…` là TỪ KHOÁ CHÍNH (bắt buộc): trang phải chứa nguyên văn, không tách từ.
+ *    Nhóm OR: `Bỉ | Brussels` — trang chỉ cần có một trong các lựa chọn.
  *  - Phần còn lại là từ phụ: có hay không đều được; dùng để Google tìm đúng chủ đề hơn
- *    và để tính mức liên quan của từng bài.
+ *    và để báo mức liên quan của từng bài (không dùng để loại bài).
  *  - Không có từ khoá chính nào → tìm LIÊN QUAN: bài chỉ cần có phần lớn các từ đã nhập
  *    (xem pipeline), không cần đúng thứ tự hay liền nhau.
  * Dùng dấu ` thay cho ngoặc kép như Google vì ngoặc kép hay xuất hiện trong chính nội dung cần tìm
@@ -14,11 +15,6 @@ import { normalizeText } from './matcher';
 
 /** Tìm liên quan (không đánh dấu từ khoá bắt buộc): bài phải có ít nhất tỉ lệ này trong số từ đã nhập */
 export const LOOSE_MIN_RATIO = 0.6;
-/**
- * Có từ khoá chính: ngoài từ khoá chính, bài còn phải có ít nhất tỉ lệ này trong số các từ còn lại
- * (nội dung liên quan, vd "chuyến công du Đan Mạch"), để không nhận mọi bài chỉ nhắc tới từ khoá chính.
- */
-export const RELATED_MIN_RATIO = 0.5;
 
 /** Dấu đánh dấu từ khoá chính */
 export const KEYWORD_MARK = '`';
@@ -72,6 +68,19 @@ function quotedRegions(input: string): { start: number; end: number; inner: stri
     i = end;
   }
   return regions;
+}
+
+/** Dấu tách các lựa chọn của một nhóm OR trong từ khoá chính: `Bỉ | Brussels` */
+export const OR_MARK = '|';
+
+/** Các lựa chọn của một từ khoá chính ("Bỉ | Brussels" → ["Bỉ", "Brussels"]) */
+export function termAlternatives(text: string): string[] {
+  return uniqueIgnoringCase(text.split(OR_MARK).map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean));
+}
+
+/** Cụm loại trừ người dùng nhập, cách nhau bằng dấu phẩy / chấm phẩy / xuống dòng */
+export function parseList(input: string | null | undefined): string[] {
+  return uniqueIgnoringCase((input ?? '').split(/[,;\n]/).map((s) => clean(s)).filter(Boolean));
 }
 
 export function parseQuery(input: string): ParsedQuery {

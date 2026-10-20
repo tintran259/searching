@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server';
-import { todayInVietnam } from '@/lib/date-range';
+import { latestTodayAnywhere } from '@/lib/date-range';
 import { loadPage } from '@/lib/page-loader';
 import { runPipeline } from '@/lib/pipeline';
 import { getSearchProvider } from '@/lib/search';
@@ -24,8 +24,9 @@ const DEADLINE_MS = (300 - 20) * 1000;
  * Trả về Server-Sent Events: start, progress, result, rejected, warning, done, fatal.
  */
 export async function GET(request: NextRequest) {
-  // Đọc tham số request trước tiên: route chạy theo từng request, không prerender
-  const parsed = parseSearchParams(request.nextUrl.searchParams, todayInVietnam());
+  // Đọc tham số request trước tiên: route chạy theo từng request, không prerender.
+  // Khoảng ngày do trình duyệt gửi theo giờ máy người dùng, nên giới hạn trên là ngày muộn nhất ở mọi múi giờ
+  const parsed = parseSearchParams(request.nextUrl.searchParams, latestTodayAnywhere());
   const abort = new AbortController();
   request.signal.addEventListener('abort', () => abort.abort());
   const encoder = new TextEncoder();

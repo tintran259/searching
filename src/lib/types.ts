@@ -34,15 +34,36 @@ export interface SearchParams {
   languages: string[];
   /** Phạm vi Ngoài nước: tìm thêm bản dịch trên công cụ phổ biến ở nước đó (Baidu, Yandex, Naver) */
   localEngines: boolean;
+  /** Số lượt SerpApi tối đa cho cả lượt tìm (lượt lấy từ bộ nhớ đệm không tính). Mặc định SEARCH_LIMITS.defaultBudget */
+  budget?: number;
+  /** Cụm từ loại trừ: bài có cụm này trong nội dung bị loại; truy vấn gửi kèm -"cụm" */
+  exclude?: string[];
+  /**
+   * Phạm vi Ngoài nước: labeled (mặc định) nhận mọi domain có đủ nội dung, ghi quốc gia nếu xác định được;
+   * verified chỉ nhận báo có bằng chứng quốc gia (danh sách báo, tên miền quốc gia, domain được cho phép)
+   */
+  sourcePolicy?: SourcePolicy;
+  /** Loại bài đăng lại / dịch lại từ báo Việt Nam khi có bằng chứng (mặc định có) */
+  excludeRepublished?: boolean;
+  /** Domain luôn coi là nguồn hợp lệ (bỏ qua bước xác minh quốc gia) */
+  allowDomains?: string[];
+  /** Domain luôn loại */
+  denyDomains?: string[];
 }
+
+export type SourcePolicy = 'verified' | 'labeled';
+
+/** Kết quả tìm từ khung tìm kiếm web hay mục Tin tức (Google News: tbm=nws) */
+export type SearchVertical = 'web' | 'news';
 
 /** Mã ngôn ngữ của nhóm truy vấn gốc */
 export const SOURCE_LANGUAGE = 'vi';
 
 /** Một từ khoá bắt buộc: trang phải chứa nguyên văn một trong các biến thể */
 export interface QueryTerm {
+  /** Như người dùng nhập; nhóm OR viết "Bỉ | Brussels" */
   text: string;
-  /** Cụm gốc, kèm bản không dấu / đảo thứ tự khi tìm Ngoài nước */
+  /** Cụm gốc (mỗi lựa chọn của nhóm OR), kèm bản không dấu / đảo thứ tự khi tìm Ngoài nước */
   variants: string[];
 }
 
@@ -55,6 +76,8 @@ export interface QueryGroup {
   optional: string[];
   /** Chuỗi truy vấn gửi lên search engine */
   searchQuery: string;
+  /** Cách diễn đạt khác của phần từ phụ (bản dịch thứ 2, 3…), dùng cho truy vấn bổ sung khi thiếu kết quả */
+  altOptional?: string[];
 }
 
 export interface QueryPlan {
@@ -96,6 +119,45 @@ export interface ArticleSeo {
   wordCount: number;
 }
 
+/**
+ * Trạng thái của một từ khoá bắt buộc:
+ *  - matched_exact: có nguyên văn từ khoá / một lựa chọn của nhóm OR (kể cả bản không dấu), hoặc bản dịch chính;
+ *  - matched_alias: có cách viết khác (đảo thứ tự tên, bản dịch phụ);
+ *  - not_matched: không có;
+ *  - unverified: chỉ thấy trong tiêu đề / đoạn trích của Google, chưa kiểm tra được nội dung trang.
+ */
+export type ConditionStatus = 'matched_exact' | 'matched_alias' | 'not_matched' | 'unverified';
+
+/** Vị trí tìm thấy từ khoá */
+export type EvidenceLocation = 'title' | 'description' | 'main' | 'snippet';
+
+export interface ConditionCheck {
+  /** Từ khoá như người dùng nhập */
+  term: string;
+  status: ConditionStatus;
+  /** Biến thể đã khớp */
+  variant: string | null;
+  where: EvidenceLocation | null;
+}
+
+/** verified: đã đọc nội dung trang; unverified: chỉ dựa trên tiêu đề + đoạn trích của Google */
+export type Verification = 'verified' | 'unverified';
+
+/** Hồ sơ nguồn: dựa trên bằng chứng của chính trang, không dựa trên tham số gl / hl / lr đã gửi cho Google */
+export interface PublisherProfile {
+  /** Mã quốc gia ISO (vd "vn", "us") nếu xác định được */
+  country: string | null;
+  /** Có bằng chứng nguồn đúng phạm vi (báo trong danh sách, tên miền quốc gia, domain được cho phép) */
+  verified: boolean;
+  /** Ngôn ngữ bài (mã ngôn ngữ của thẻ lang / og:locale), null nếu không rõ */
+  language: string | null;
+  kind: 'news' | 'social';
+  /** original: không thấy dấu hiệu đăng lại; republished: có bằng chứng đăng lại / dịch lại từ báo Việt Nam */
+  origin: 'original' | 'republished' | 'unknown';
+  /** Các tín hiệu đã dùng, để người dùng đối chiếu */
+  signals: string[];
+}
+
 export interface ArticleResult {
   /** Khoá URL đã chuẩn hoá (dùng để gộp trùng) */
   id: string;
@@ -122,6 +184,12 @@ export interface ArticleResult {
   foundVia: SearchEngine;
   /** Chi tiết SEO của bài (null nếu không đọc được) */
   seo: ArticleSeo | null;
+  verification: Verification;
+  /** Trạng thái từng từ khoá bắt buộc (rỗng khi tìm liên quan) */
+  conditions: ConditionCheck[];
+  publisher: PublisherProfile;
+  /** Các nguồn tìm kiếm đã tìm ra bài, vd "Tiếng Anh · Google", "Tiếng Anh · Google News" */
+  foundBy: string[];
 }
 
 export type RejectReason =
@@ -132,7 +200,11 @@ export type RejectReason =
   | 'no_match'
   | 'outside_main'
   | 'out_of_range'
-  | 'no_date';
+  | 'no_date'
+  | 'excluded'
+  | 'denied_domain'
+  | 'source_unverified'
+  | 'republished';
 
 export interface RejectedItem {
   id: string;
@@ -151,10 +223,13 @@ export interface RejectedItem {
  * công cụ trả về bao nhiêu, bao nhiêu bài hợp lệ / bị loại / trùng.
  */
 export interface SourceReport {
-  /** `${language}:${engine}` */
+  /** `${language}:${engine}`, kèm `:news` / `:alt1`… cho truy vấn bổ sung */
   id: string;
   language: string;
   engine: SearchEngine;
+  vertical: SearchVertical;
+  /** 1: truy vấn chính; 2: truy vấn bổ sung, chỉ chạy khi ngôn ngữ đó còn thiếu kết quả và còn ngân sách */
+  tier: 1 | 2;
   /** Truy vấn đã gửi (rỗng nếu không tìm) */
   query: string;
   /** Số kết quả tối đa cần lấy */
@@ -167,7 +242,7 @@ export interface SourceReport {
   rejected: number;
   /** Trùng với bài đã có (từ nguồn khác hoặc cùng nguồn) */
   duplicates: number;
-  status: 'waiting' | 'searching' | 'done' | 'failed' | 'untranslated' | 'stopped';
+  status: 'waiting' | 'searching' | 'done' | 'failed' | 'untranslated' | 'stopped' | 'skipped';
   error?: string;
 }
 
@@ -196,6 +271,31 @@ export interface ProgressState {
   accepted: number;
   rejected: number;
   duplicates: number;
+  metrics: SearchMetrics;
+}
+
+/** Số đo của một lượt tìm: chi phí SerpApi, tỉ lệ từng bước, thời gian */
+export interface SearchMetrics {
+  /** Số lượt SerpApi tối đa đã chọn */
+  budget: number;
+  /** Số truy vấn đã lập / bỏ vì trùng / chạy thật */
+  queriesPlanned: number;
+  queriesDeduped: number;
+  retries: number;
+  searchErrors: number;
+  /** Số trang tải được / tải lỗi */
+  fetchOk: number;
+  fetchFailed: number;
+  /** Số bài có đủ từ khoá (kể cả chưa xác minh) */
+  keywordPassed: number;
+  /** Số bài chưa xác minh (chỉ có tiêu đề + đoạn trích) */
+  unverified: number;
+  /** Số bài có nguồn đã xác minh */
+  sourceVerified: number;
+  /** Thời gian từng bước (ms) */
+  translateMs: number;
+  searchMs: number;
+  verifyMs: number;
 }
 
 export type PipelineEvent =

@@ -1,6 +1,8 @@
 /**
  * SerpApi: https://serpapi.com/search-api
  *  - Google: giới hạn ngày bằng tbs=cdr:1,cd_min:M/D/YYYY,cd_max:M/D/YYYY; phân trang bằng `start` (10 kết quả/trang).
+ *    Mục Tin tức (tbm=nws, https://serpapi.com/news-results): cùng tbs / start / lr (đã thử thực tế), kết quả ở
+ *    `news_results` kèm `source` (tên báo) và `published_at`; KHÔNG dùng được toán tử site: (SerpApi báo lỗi).
  *  - Baidu (https://serpapi.com/baidu-search-api): ngày bằng gpc=stf=<unix>,<unix>|stftype=1; trang bằng `pn`.
  *  - Yandex (https://serpapi.com/yandex-search-api): không lọc được khoảng ngày tuỳ ý; trang bằng `p` (từ 0).
  *  - Naver (https://serpapi.com/naver-search-api): mục Tin tức (where=news), ngày bằng period=fromYYYYMMDDtoYYYYMMDD.
@@ -50,10 +52,21 @@ interface SerpApiNaverNewsResult {
   news_info?: { press_name?: string; news_date?: string; date?: string };
 }
 
+interface SerpApiGoogleNewsResult {
+  position?: number;
+  title?: string;
+  link?: string;
+  snippet?: string;
+  date?: string;
+  source?: string | { name?: string };
+  published_at?: string;
+}
+
 interface SerpApiResponse {
   error?: string;
   organic_results?: SerpApiOrganicResult[];
-  news_results?: SerpApiNaverNewsResult[];
+  /** Naver (where=news) hoặc Google mục Tin tức (tbm=nws) — hai schema khác nhau */
+  news_results?: (SerpApiNaverNewsResult & SerpApiGoogleNewsResult)[];
   serpapi_pagination?: { next?: string };
 }
 
@@ -114,6 +127,7 @@ export class SerpApiProvider implements SearchProvider {
         break;
       default: {
         params.set('q', request.query);
+        if (request.vertical === 'news') params.set('tbm', 'nws');
         params.set('start', String(request.page * PAGE_SIZE));
         params.set('nfpr', '1'); // không để Google tự sửa chính tả từ khoá
         const { country, language } = request.locale ?? {};
@@ -169,11 +183,24 @@ export class SerpApiProvider implements SearchProvider {
       throw new SearchProviderError(`SerpApi: ${message}`, fatal);
     }
 
-    const raw: SerpApiOrganicResult[] =
-      request.engine === 'naver'
-        ? (data.news_results ?? []).map((r) => ({ ...r, date: r.news_info?.news_date ?? r.news_info?.date }))
-        : (data.organic_results ?? []);
-    const withLinks = raw.filter((r): r is SerpApiOrganicResult & { link: string } => typeof r.link === 'string');
+    type Raw = SerpApiOrganicResult & { sourceName?: string; publishedAt?: string };
+    let raw: Raw[];
+    if (request.engine === 'naver') {
+      raw = (data.news_results ?? []).map((r) => ({
+        ...r,
+        date: r.news_info?.news_date ?? r.news_info?.date,
+        sourceName: r.news_info?.press_name,
+      }));
+    } else if (request.vertical === 'news') {
+      raw = (data.news_results ?? []).map((r) => ({
+        ...r,
+        sourceName: typeof r.source === 'string' ? r.source : r.source?.name,
+        publishedAt: r.published_at,
+      }));
+    } else {
+      raw = data.organic_results ?? [];
+    }
+    const withLinks = raw.filter((r): r is Raw & { link: string } => typeof r.link === 'string');
     const items: SearchResultItem[] = await Promise.all(
       withLinks.map(async (r, i) => ({
         url: request.engine === 'baidu' ? await this.resolveBaiduLink(r.link, signal) : r.link,
@@ -181,6 +208,8 @@ export class SerpApiProvider implements SearchProvider {
         snippet: r.snippet ?? '',
         dateText: r.date ?? leadingDate(r.snippet),
         position: r.position ?? request.page * PAGE_SIZE + i + 1,
+        ...(r.sourceName ? { sourceName: r.sourceName } : {}),
+        ...(r.publishedAt ? { publishedAt: r.publishedAt } : {}),
       })),
     );
     return {

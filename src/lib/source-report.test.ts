@@ -6,6 +6,8 @@ const report = (o: Partial<SourceReport> = {}): SourceReport => ({
   id: 'ru:google',
   language: 'ru',
   engine: 'google',
+  vertical: 'web',
+  tier: 1,
   query: '"Чан Ван А"',
   requested: 10,
   returned: 10,
@@ -24,7 +26,7 @@ describe('sourceNote', () => {
 
   it('không đủ 10 bài vì công cụ hết kết quả', () => {
     expect(sourceNote(report({ returned: 3, accepted: 2, rejected: 1, duplicates: 0, exhausted: true }), true).text).toBe(
-      'Chỉ có 3/10 kết quả: Google không còn kết quả nào khác; 2 bài hợp lệ.',
+      'Chỉ có 3/10 kết quả: Google không còn kết quả nào khác trong khoảng ngày đã chọn; 2 bài hợp lệ.',
     );
   });
 
@@ -50,5 +52,7 @@ describe('sourceNote', () => {
   it('nhãn nguồn', () => {
     expect(sourceLabel('ru', 'yandex')).toBe('Tiếng Nga · Yandex');
     expect(sourceLabel('vi', 'google')).toBe('Tiếng Việt · Google');
+    expect(sourceLabel('en', 'google', 'news', 2)).toBe('Tiếng Anh · Google News');
+    expect(sourceLabel('en', 'google', 'web', 2)).toBe('Tiếng Anh · Google (truy vấn bổ sung)');
   });
 });

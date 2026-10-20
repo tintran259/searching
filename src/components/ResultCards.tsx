@@ -3,6 +3,7 @@ import { SOURCE_LANGUAGE, type ArticleResult } from '@/lib/types';
 import { ExternalIcon } from './icons';
 import { DateInfo, Highlighted, MatchInfo, seoPanelId, useOpenSet } from './ResultsTable';
 import { SeoDetails, SeoToggle } from './SeoDetails';
+import { ConditionBadges, PublisherInfo } from './Verification';
 
 /** Kết quả dạng thẻ cho màn hình hẹp (thay cho bảng phải cuộn ngang) */
 export function ResultCards({ items }: { items: ArticleResult[] }) {
@@ -29,9 +30,11 @@ export function ResultCards({ items }: { items: ArticleResult[] }) {
             {item.matchedLanguage !== SOURCE_LANGUAGE ? ` · ${matchSourceLabel(item.matchedLanguage)}` : ''}
             {item.foundVia !== 'google' ? ` · qua ${engineLabel(item.foundVia)}` : ''}
           </p>
+          <PublisherInfo item={item} />
           <p className="mt-3 text-sm leading-relaxed text-muted">
             <Highlighted text={item.snippet} ranges={item.highlights} />
           </p>
+          <ConditionBadges item={item} />
           <MatchInfo item={item} />
           <SeoToggle open={openSeo.has(item.id)} onToggle={() => toggleSeo(item.id)} controls={`m-${seoPanelId(i)}`} />
           {openSeo.has(item.id) && (

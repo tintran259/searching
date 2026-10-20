@@ -1,7 +1,15 @@
 /** Nhãn hiển thị tiếng Việt, dùng chung cho UI, file xuất và thông báo của pipeline. */
 import { LOCAL_ENGINES, SEARCH_LANGUAGES } from '@/config/languages';
 import type { SearchEngine } from './search/types';
-import { SOURCE_LANGUAGE, type DateSource, type Region, type RejectReason } from './types';
+import {
+  SOURCE_LANGUAGE,
+  type ConditionStatus,
+  type DateSource,
+  type EvidenceLocation,
+  type PublisherProfile,
+  type Region,
+  type RejectReason,
+} from './types';
 
 export function languageLabel(code: string): string {
   if (code === SOURCE_LANGUAGE) return 'Tiếng Việt';
@@ -44,7 +52,41 @@ export const REJECT_REASON_LABELS: Record<RejectReason, string> = {
   outside_main: 'Chỉ có ngoài nội dung chính',
   out_of_range: 'Ngoài khoảng ngày',
   no_date: 'Không rõ ngày đăng',
+  excluded: 'Có cụm loại trừ',
+  denied_domain: 'Domain bị loại',
+  source_unverified: 'Chưa rõ quốc gia nguồn',
+  republished: 'Đăng lại từ báo VN',
 };
+
+export const CONDITION_LABELS: Record<ConditionStatus, string> = {
+  matched_exact: 'Có nguyên văn',
+  matched_alias: 'Có cách viết khác',
+  not_matched: 'Không có',
+  unverified: 'Chỉ thấy trên Google',
+};
+
+export const EVIDENCE_LABELS: Record<EvidenceLocation, string> = {
+  title: 'tiêu đề',
+  description: 'mô tả',
+  main: 'nội dung',
+  snippet: 'tiêu đề / đoạn trích Google',
+};
+
+export const ORIGIN_LABELS: Record<PublisherProfile['origin'], string> = {
+  original: 'Bài gốc',
+  republished: 'Đăng lại từ báo Việt Nam',
+  unknown: 'Chưa rõ nguồn gốc',
+};
+
+/** Tên quốc gia theo mã ISO (Intl), vd "us" → "Hoa Kỳ" */
+export function countryLabel(code: string | null): string | null {
+  if (!code) return null;
+  try {
+    return new Intl.DisplayNames(['vi'], { type: 'region' }).of(code.toUpperCase()) ?? code.toUpperCase();
+  } catch {
+    return code.toUpperCase();
+  }
+}
 
 /** "2019-05-12" → "12/05/2019" */
 export function formatDate(isoDate: string): string {
