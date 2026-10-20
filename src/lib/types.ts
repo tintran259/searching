@@ -49,6 +49,35 @@ export interface SearchParams {
   allowDomains?: string[];
   /** Domain luôn loại */
   denyDomains?: string[];
+  /**
+   * Cách gọi khác người dùng chọn từ gợi ý cho từng từ khoá chính (vd "Tô Lâm" → "Chủ tịch nước Việt Nam").
+   * Bài có cách gọi này thay cho từ khoá vẫn được nhận, ghi rõ "khớp theo gợi ý".
+   */
+  expansions?: TermExpansion[];
+}
+
+export interface TermExpansion {
+  /** Từ khoá chính như người dùng nhập */
+  term: string;
+  alternatives: string[];
+}
+
+/** Một gợi ý cách gọi khác cho từ khoá chính */
+export interface KeywordSuggestion {
+  text: string;
+  /** role: chức vụ; alias: tên khác; related: liên quan (vd thủ đô của một nước) */
+  kind: 'role' | 'alias' | 'related';
+  /** Ghi chú hiển thị, vd "từ 08/2024", "đã thôi giữ từ 05/2024", "Thủ đô" */
+  note: string | null;
+  /** false: chức vụ không trùng khoảng ngày đang tìm (đã thôi giữ / chưa nhận) — mặc định không nên chọn */
+  current: boolean;
+}
+
+export interface TermSuggestions {
+  term: string;
+  /** Thực thể Wikidata đã nhận diện (để người dùng biết gợi ý cho ai / cái gì) */
+  entity: { id: string; label: string; description: string | null; url: string } | null;
+  suggestions: KeywordSuggestion[];
 }
 
 export type SourcePolicy = 'verified' | 'labeled';
@@ -65,6 +94,8 @@ export interface QueryTerm {
   text: string;
   /** Cụm gốc (mỗi lựa chọn của nhóm OR), kèm bản không dấu / đảo thứ tự khi tìm Ngoài nước */
   variants: string[];
+  /** Các biến thể đến từ gợi ý người dùng chọn (chức danh, tên khác) — cũng nằm trong `variants` */
+  expansions?: string[];
 }
 
 export interface QueryGroup {
@@ -123,10 +154,11 @@ export interface ArticleSeo {
  * Trạng thái của một từ khoá bắt buộc:
  *  - matched_exact: có nguyên văn từ khoá / một lựa chọn của nhóm OR (kể cả bản không dấu), hoặc bản dịch chính;
  *  - matched_alias: có cách viết khác (đảo thứ tự tên, bản dịch phụ);
+ *  - matched_expansion: không có từ khoá nhưng có cách gọi khác người dùng chọn từ gợi ý (vd chức danh);
  *  - not_matched: không có;
  *  - unverified: chỉ thấy trong tiêu đề / đoạn trích của Google, chưa kiểm tra được nội dung trang.
  */
-export type ConditionStatus = 'matched_exact' | 'matched_alias' | 'not_matched' | 'unverified';
+export type ConditionStatus = 'matched_exact' | 'matched_alias' | 'matched_expansion' | 'not_matched' | 'unverified';
 
 /** Vị trí tìm thấy từ khoá */
 export type EvidenceLocation = 'title' | 'description' | 'main' | 'snippet';

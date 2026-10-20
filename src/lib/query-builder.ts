@@ -6,7 +6,7 @@ import { normalizeText } from './matcher';
 import { canonicalQuery, parseQuery, termAlternatives } from './query-syntax';
 import { domesticDomainsOutsideVn } from './region';
 import type { SearchLocale } from './search/types';
-import { SOURCE_LANGUAGE, type QueryGroup, type QueryPlan, type QueryTerm, type Region } from './types';
+import { SOURCE_LANGUAGE, type QueryGroup, type QueryPlan, type QueryTerm, type Region, type TermExpansion } from './types';
 
 /** Google bỏ qua phần truy vấn vượt quá 32 từ */
 const MAX_QUERY_WORDS = 32;
@@ -180,16 +180,57 @@ export function buildLocalQuery(group: QueryGroup, engine: LocalEngine): string 
  * Kế hoạch truy vấn tiếng Việt (nhóm duy nhất; nhóm ngôn ngữ dịch được thêm bằng `withTranslations`).
  * Không đánh dấu gì thì nhóm không có từ khoá bắt buộc (tìm liên quan theo từ phụ).
  */
-export function buildQueryPlan(input: string, region: Region, options: { exclude?: string[] } = {}): QueryPlan {
+/**
+ * Truy vấn chính tối đa chừng này từ khi gộp cách gọi khác (gợi ý) bằng OR: dài hơn thì bỏ cách gọi khác ra khỏi
+ * truy vấn chính (chúng vẫn được dùng để xác minh và cho truy vấn bổ sung), để Google không cắt mất phần sau.
+ */
+const MAX_WORDS_WITH_EXPANSIONS = 24;
+
+/** Từ khoá chỉ gồm biến thể gốc (bỏ cách gọi khác) */
+const withoutExpansions = (terms: QueryTerm[]): QueryTerm[] =>
+  terms.map((t) => (t.expansions?.length ? { ...t, variants: t.variants.filter((v) => !t.expansions!.includes(v)) } : t));
+
+/**
+ * Truy vấn chính của một nhóm: gộp cách gọi khác vào cùng truy vấn bằng OR (không tốn thêm lượt tìm);
+ * truy vấn quá dài thì chỉ dùng biến thể gốc.
+ */
+export function buildMainQuery(terms: QueryTerm[], optional: string[], region: Region, options: SearchQueryOptions = {}): string {
+  const full = buildSearchQuery(terms, optional, region, options);
+  if (!terms.some((t) => t.expansions?.length)) return full;
+  const core = buildSearchQuery(terms, [], region, { vertical: 'news' });
+  return countWords(core) <= MAX_WORDS_WITH_EXPANSIONS ? full : buildSearchQuery(withoutExpansions(terms), optional, region, options);
+}
+
+/** Truy vấn chỉ bằng cách gọi khác: từ khoá có gợi ý được thay bằng các cách gọi khác, từ khoá còn lại giữ nguyên */
+export function buildExpansionQuery(
+  terms: QueryTerm[],
+  optional: string[],
+  region: Region,
+  options: SearchQueryOptions = {},
+): string | null {
+  if (!terms.some((t) => t.expansions?.length)) return null;
+  const swapped = terms.map((t) => (t.expansions?.length ? { ...t, variants: t.expansions } : t));
+  return buildSearchQuery(swapped, optional, region, options);
+}
+
+export function buildQueryPlan(
+  input: string,
+  region: Region,
+  options: { exclude?: string[]; expansions?: TermExpansion[] } = {},
+): QueryPlan {
   const parsed = parseQuery(input);
   if (!parsed.required.length && !parsed.optional.length) throw new Error('Từ khoá đang trống');
-  // Nhóm OR (`Bỉ | Brussels`): mỗi lựa chọn là một biến thể của cùng từ khoá
-  const terms = parsed.required.map((text) => ({
-    text,
-    variants: uniqueIgnoringCase(
-      termAlternatives(text).flatMap((alt) => (region === 'foreign' ? buildNameVariants(alt) : [alt])),
-    ),
-  }));
+  // Nhóm OR (`Bỉ | Brussels`): mỗi lựa chọn là một biến thể của cùng từ khoá.
+  // Cách gọi khác (gợi ý): Ngoài nước thêm bản không dấu, không đảo thứ tự (chức danh không phải tên người)
+  const terms: QueryTerm[] = parsed.required.map((text) => {
+    const typed = termAlternatives(text).flatMap((alt) => (region === 'foreign' ? buildNameVariants(alt) : [alt]));
+    const expansions = uniqueIgnoringCase(
+      (options.expansions?.find((e) => e.term === text)?.alternatives ?? []).flatMap((alt) =>
+        region === 'foreign' ? [alt, removeDiacritics(alt)] : [alt],
+      ),
+    ).filter((e) => !typed.some((v) => v.toLowerCase() === e.toLowerCase()));
+    return { text, variants: uniqueIgnoringCase([...typed, ...expansions]), ...(expansions.length ? { expansions } : {}) };
+  });
   return {
     phrase: canonicalQuery(parsed),
     groups: [
@@ -197,7 +238,7 @@ export function buildQueryPlan(input: string, region: Region, options: { exclude
         language: SOURCE_LANGUAGE,
         terms,
         optional: parsed.optional,
-        searchQuery: buildSearchQuery(terms, parsed.optional, region, options),
+        searchQuery: buildMainQuery(terms, parsed.optional, region, { exclude: options.exclude }),
       },
     ],
   };
@@ -211,6 +252,8 @@ export interface TranslatedQuery {
   optional: string[];
   /** Các cách diễn đạt khác của phần từ phụ (bản dịch thứ 2, 3…) */
   altOptional?: string[];
+  /** Bản dịch các cách gọi khác (gợi ý) của từng từ khoá, cùng thứ tự với `terms` */
+  termExpansions?: string[][];
 }
 
 /**
@@ -232,13 +275,17 @@ export function withTranslations(
     // Thiếu bản dịch cho một từ khoá bắt buộc, hoặc tìm liên quan mà không có bản dịch nào → bỏ ngôn ngữ
     const incomplete = terms.length !== plan.groups[0].terms.length || terms.some((variants) => variants.length === 0);
     if (incomplete || (terms.length === 0 && optional.length === 0)) continue;
-    const queryTerms = terms.map((variants) => ({ text: variants[0], variants }));
+    const queryTerms: QueryTerm[] = terms.map((variants, i) => {
+      const lower = new Set(variants.map((v) => v.toLowerCase()));
+      const expansions = uniqueIgnoringCase((t.termExpansions?.[i] ?? []).map(cleanPhrase)).filter((e) => !lower.has(e.toLowerCase()));
+      return { text: variants[0], variants: [...variants, ...expansions], ...(expansions.length ? { expansions } : {}) };
+    });
     const altOptional = (t.altOptional ?? []).map(cleanPhrase).filter((o) => o && !optional.includes(o));
     groups.push({
       language: t.language,
       terms: queryTerms,
       optional,
-      searchQuery: buildSearchQuery(queryTerms, optional, region, options),
+      searchQuery: buildMainQuery(queryTerms, optional, region, options),
       ...(altOptional.length ? { altOptional } : {}),
     });
   }

@@ -4,8 +4,8 @@
 import { SEARCH_LANGUAGES } from '@/config/languages';
 import { isValidIsoDate, shiftDate } from './date-range';
 import { formatDate } from './labels';
-import { canonicalQuery, parseList, parseQuery } from './query-syntax';
-import type { SearchParams } from './types';
+import { canonicalQuery, parseList, parseQuery, termAlternatives } from './query-syntax';
+import type { SearchParams, TermExpansion } from './types';
 
 export const SEARCH_LIMITS = {
   minDate: '1990-01-01',
@@ -20,6 +20,9 @@ export const SEARCH_LIMITS = {
   maxBudget: 100,
   budgetOptions: [5, 10, 20, 30, 50, 100],
   maxListItems: 30,
+  /** Số cách gọi khác tối đa cho mỗi từ khoá chính, độ dài tối đa mỗi cách gọi */
+  maxExpansionsPerTerm: 8,
+  maxExpansionLength: 80,
 } as const;
 
 export type ParsedSearchParams = { ok: true; params: SearchParams } | { ok: false; error: string };
@@ -99,6 +102,10 @@ export function parseSearchParams(sp: URLSearchParams, today: string): ParsedSea
     return fail(`Mỗi danh sách loại trừ / domain có tối đa ${SEARCH_LIMITS.maxListItems} mục.`);
   }
 
+  // expand=[{"term":"Tô Lâm","alternatives":["Chủ tịch nước Việt Nam"]}]: cách gọi khác chọn từ gợi ý
+  const expansions = readExpansions(sp.get('expand'), parsedQuery.required);
+  if (!expansions) return fail('Danh sách cách gọi khác (expand) không hợp lệ.');
+
   // policy=labeled (mặc định): nhận mọi domain có đủ nội dung; verified: chỉ nhận báo có bằng chứng quốc gia
   const policy = sp.get('policy') ?? 'labeled';
   if (policy !== 'verified' && policy !== 'labeled') return fail('Chính sách nguồn phải là "verified" hoặc "labeled".');
@@ -121,8 +128,44 @@ export function parseSearchParams(sp: URLSearchParams, today: string): ParsedSea
       excludeRepublished,
       allowDomains,
       denyDomains,
+      expansions,
     },
   };
+}
+
+const tidyPhrase = (s: string) => s.normalize('NFC').replace(/[`|"“”]/g, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * Đọc JSON cách gọi khác; chỉ giữ cho các từ khoá chính đang có trong ô tìm kiếm, bỏ trùng với chính từ khoá.
+ * Sai định dạng → null.
+ */
+function readExpansions(value: string | null, required: string[]): TermExpansion[] | null {
+  if (!value?.trim()) return [];
+  let data: unknown;
+  try {
+    data = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(data)) return null;
+  const result: TermExpansion[] = [];
+  for (const item of data) {
+    const { term, alternatives } = (item ?? {}) as { term?: unknown; alternatives?: unknown };
+    if (typeof term !== 'string' || !Array.isArray(alternatives)) return null;
+    const target = required.find((r) => r.toLowerCase() === tidyPhrase(term).toLowerCase());
+    if (!target) continue;
+    const own = new Set(termAlternatives(target).map((a) => a.toLowerCase()));
+    const alts = [
+      ...new Set(
+        alternatives
+          .filter((a): a is string => typeof a === 'string')
+          .map(tidyPhrase)
+          .filter((a) => a && a.length <= SEARCH_LIMITS.maxExpansionLength && !own.has(a.toLowerCase())),
+      ),
+    ].slice(0, SEARCH_LIMITS.maxExpansionsPerTerm);
+    if (alts.length) result.push({ term: target, alternatives: alts });
+  }
+  return result;
 }
 
 /** "https://www.Example.com/abc" → "example.com" */
@@ -151,5 +194,6 @@ export function toQueryString(params: SearchParams): string {
   if (params.excludeRepublished === false) qs.set('republished', '0');
   if (params.allowDomains?.length) qs.set('allow', params.allowDomains.join(','));
   if (params.denyDomains?.length) qs.set('deny', params.denyDomains.join(','));
+  if (params.expansions?.length) qs.set('expand', JSON.stringify(params.expansions));
   return qs.toString();
 }

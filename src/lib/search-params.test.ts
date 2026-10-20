@@ -22,6 +22,7 @@ describe('parseSearchParams', () => {
         excludeRepublished: true,
         allowDomains: [],
         denyDomains: [],
+        expansions: [],
       },
     });
   });
@@ -45,9 +46,23 @@ describe('parseSearchParams', () => {
         excludeRepublished: true,
         allowDomains: [],
         denyDomains: [],
+        expansions: [],
       },
     });
     if (parsed.ok) expect(parse(toQueryString(parsed.params))).toEqual(parsed);
+  });
+
+  it('cách gọi khác (gợi ý): chỉ giữ cho từ khoá chính đang có, bỏ trùng và ký tự cú pháp', () => {
+    const expand = JSON.stringify([
+      { term: 'Tô Lâm', alternatives: ['Chủ tịch nước Việt Nam', 'Tô Lâm', '`Tổng Bí thư`', ''] },
+      { term: 'Không có trong ô', alternatives: ['x'] },
+    ]);
+    const parsed = parse(`q=${encodeURIComponent('`Tô Lâm` đi `Bỉ`')}&expand=${encodeURIComponent(expand)}`);
+    expect(parsed.ok && parsed.params.expansions).toEqual([
+      { term: 'Tô Lâm', alternatives: ['Chủ tịch nước Việt Nam', 'Tổng Bí thư'] },
+    ]);
+    if (parsed.ok) expect(parse(toQueryString(parsed.params))).toEqual(parsed);
+    expect(parse('q=%60a%60&expand=not-json')).toMatchObject({ ok: false, error: expect.stringContaining('expand') });
   });
 
   it('ngân sách lượt tìm, cụm loại trừ, chính sách nguồn và danh sách domain', () => {

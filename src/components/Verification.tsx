@@ -4,6 +4,7 @@ import type { ArticleResult, ConditionStatus } from '@/lib/types';
 const CONDITION_STYLES: Record<ConditionStatus, string> = {
   matched_exact: 'bg-ok-soft text-ok',
   matched_alias: 'bg-accent-soft text-accent',
+  matched_expansion: 'bg-accent-soft text-accent',
   not_matched: 'bg-bad-soft text-bad',
   unverified: 'bg-warn-soft text-warn',
 };

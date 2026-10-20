@@ -186,6 +186,21 @@ Hồ sơ nguồn của mỗi bài (rê chuột lên dòng quốc gia để xem t
 
 Chính sách nguồn (khi tìm Ngoài nước, trong form): **Nhận mọi trang có nội dung phù hợp** (mặc định) hoặc chế độ chặt **Chỉ nhận báo xác định được quốc gia**; tuỳ chọn **Loại bài đăng lại / dịch lại từ báo Việt Nam** (mặc định bật).
 
+### Gợi ý cách gọi khác (`src/lib/suggest/wikidata.ts`, `src/components/KeywordSuggestions.tsx`)
+
+Có từ khoá chính thì bên dưới ô tìm kiếm hiện gợi ý **cách gọi khác** lấy từ Wikidata (miễn phí, không tốn lượt SerpApi):
+
+- **Người**: các chức vụ kèm thời gian (vd "Tô Lâm" → "Chủ tịch nước Việt Nam · từ 04/2026", "Tổng Bí thư Đảng Cộng sản Việt Nam · từ 08/2024"). Chỉ chức vụ trùng khoảng ngày đang tìm mới hiện bình thường; chức vụ đã thôi giữ (vd "Bộ trưởng Công an Việt Nam · đã thôi giữ từ 05/2024") hiện mờ vì dễ ra bài về người khác giữ chức đó. Tên chức vụ lấy bản ngắn có tên nước để ít nhầm người (không gợi ý "Chủ tịch nước" trơn).
+- **Mọi thực thể**: tên khác trên Wikidata (vd "Bỉ" → "Vương quốc Bỉ"); quốc gia thêm thủ đô ("Bruxelles", "Brussels").
+- Có link Wikidata cạnh mỗi từ khoá để kiểm tra đúng người / nơi. Mặc định không chọn gợi ý nào.
+
+Cách gọi đã chọn:
+- **Gộp vào truy vấn chính bằng OR**: `("Tô Lâm" OR "Chủ tịch nước Việt Nam") "Bỉ"` — không tốn thêm lượt. Truy vấn dài hơn 24 từ thì không gộp (Google bỏ phần sau 32 từ).
+- **Tìm riêng (+1 lượt, trong số lượt tìm tối đa)**: `"Chủ tịch nước Việt Nam" "Bỉ"` khi ngôn ngữ còn thiếu bài, khi trang kết quả đầu đã đầy 10 kết quả (cách gọi khác bị chia chỗ với từ khoá gốc), hoặc khi truy vấn chính quá dài nên chưa gộp.
+- Được dịch sang từng ngôn ngữ như từ khoá ("Chủ tịch nước Việt Nam" → "President of Vietnam", "Vietnamese President").
+- Bài chỉ có cách gọi khác (không có từ khoá gốc) vẫn được nhận, từ khoá ghi trạng thái **"Khớp theo gợi ý"**; các từ khoá chính khác vẫn bắt buộc. Bài có từ khoá gốc thì luôn ghi "Có nguyên văn", dù cách gọi khác xuất hiện trước.
+- Thực tế: báo Việt gần như luôn ghi kèm tên ("Tổng Bí thư, Chủ tịch nước Tô Lâm") nên gợi ý có ích nhất khi tìm Ngoài nước. Thử "Tô Lâm đi Bỉ", tiếng Anh: thêm 1 lượt tìm riêng bằng cách gọi khác, số bài tăng từ 3 lên 6.
+
 ### Truy vấn và chi phí SerpApi
 
 - **Truy vấn chính**: mỗi ngôn ngữ 1 truy vấn trên Google (và Baidu / Yandex / Naver nếu bật — mặc định tắt). Từ khoá chính bọc ngoặc kép; nhóm OR `` `Bỉ | Brussels` `` nối bằng OR; cụm loại trừ thêm `-"cụm"`; Ngoài nước thêm `-site:vn` và các domain báo VN không đuôi .vn. Phần từ phụ chỉ gồm từ quá chung ("đi", "về"…) thì không dịch.

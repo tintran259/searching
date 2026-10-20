@@ -8,6 +8,7 @@ import type { SearchQuota } from '@/lib/search/types';
 import type { Region, SearchParams, SourcePolicy } from '@/lib/types';
 import { ClientOnly } from './ClientOnly';
 import { DateRangePicker } from './DateRangePicker';
+import { KeywordSuggestions } from './KeywordSuggestions';
 import { AlertIcon, CheckIcon, ChevronDownIcon, SearchIcon, StopIcon } from './icons';
 import { LanguagePicker } from './LanguagePicker';
 import { QueryInput } from './QueryInput';
@@ -48,6 +49,8 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
   const [denyText, setDenyText] = useState('');
   const [sourcePolicy, setSourcePolicy] = useState<SourcePolicy>('labeled');
   const [excludeRepublished, setExcludeRepublished] = useState(true);
+  // Cách gọi khác chọn từ gợi ý, theo từ khoá chính
+  const [expansionPicks, setExpansionPicks] = useState<Record<string, string[]>>({});
   const [error, setError] = useState<string | null>(null);
 
   // Ngôn ngữ dịch và công cụ địa phương chỉ dùng khi tìm Ngoài nước; Trong nước chỉ tìm tiếng Việt
@@ -70,6 +73,12 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
   const budgetRaised = effectiveBudget !== budget;
   const extraCalls = Math.max(0, effectiveBudget - mainCalls);
   const maxCalls = Math.min(effectiveBudget, sources * (effectivePages + 2));
+  // Nhãn số kết quả: ghi luôn tổng lượt của truy vấn chính để khỏi phải tự nhân (vd "4 ngôn ngữ × 2 lượt = 8 lượt")
+  const sourceWord = localTargets.length ? 'nguồn' : 'ngôn ngữ';
+  const pagesLabel = (n: number) =>
+    sources > 1
+      ? `${n * 10} kết quả mỗi ${sourceWord} · ${sources} ${sourceWord} × ${n} lượt = ${sources * n} lượt`
+      : `${n * 10} kết quả · ${n} lượt`;
   const searchesLeft = quota?.searchesLeft ?? null;
   const sourcesText = [
     ...(foreign ? [] : ['tiếng Việt']),
@@ -97,6 +106,12 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
         deny: denyText,
         policy: sourcePolicy,
         republished: excludeRepublished ? '1' : '0',
+        // Từ khoá không còn trong ô thì bị bỏ khi đọc tham số
+        expand: JSON.stringify(
+          Object.entries(expansionPicks)
+            .filter(([, alternatives]) => alternatives.length)
+            .map(([term, alternatives]) => ({ term, alternatives })),
+        ),
       }),
       today,
     );
@@ -141,6 +156,16 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
             </button>
           )
         }
+      />
+
+      {/* Gợi ý cách gọi khác cho từ khoá chính (chức vụ, tên khác…), theo khoảng ngày đang chọn */}
+      <KeywordSuggestions
+        query={query}
+        fromDate={fromDate}
+        toDate={toDate}
+        disabled={running}
+        selected={expansionPicks}
+        onChange={setExpansionPicks}
       />
 
       {/* Phạm vi + thời gian */}
@@ -277,8 +302,8 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
             </label>
             <ClientOnly
               fallback={
-                <span className="flex h-10 w-full shrink-0 items-center rounded-lg border border-line bg-surface px-3 text-sm sm:w-72">
-                  Tối đa {effectivePages * 10} kết quả · {effectivePages} lượt mỗi ngôn ngữ
+                <span className="flex h-10 w-full shrink-0 items-center truncate rounded-lg border border-line bg-surface px-3 text-sm sm:w-96">
+                  {pagesLabel(effectivePages)}
                 </span>
               }
             >
@@ -287,10 +312,11 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
                 value={effectivePages}
                 onChange={setPages}
                 disabled={running}
-                className="w-full shrink-0 sm:w-72"
+                popupMatchSelectWidth={false}
+                className="w-full shrink-0 sm:w-96"
                 options={Array.from({ length: SEARCH_LIMITS.maxPagesPerSource }, (_, i) => i + 1).map((n) => ({
                   value: n,
-                  label: `Tối đa ${n * 10} kết quả · ${n} lượt mỗi ngôn ngữ`,
+                  label: pagesLabel(n),
                   // Vượt trần số lượt cho một lượt tìm (vd 10 ngôn ngữ × 100 kết quả = 100 lượt)
                   disabled: Math.max(1, sources) * n > SEARCH_LIMITS.maxBudget,
                 }))}

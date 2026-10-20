@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildExpansionQuery,
   buildLocalQuery,
   buildNameVariants,
   buildQueryPlan,
@@ -257,5 +258,43 @@ describe('nhóm OR, cụm loại trừ, mục Tin tức, từ phụ quá chung',
     expect(hasMeaningfulOptional(['đi'])).toBe(false);
     expect(hasMeaningfulOptional(['đi về'])).toBe(false);
     expect(hasMeaningfulOptional(['thăm chính thức'])).toBe(true);
+  });
+});
+
+describe('cách gọi khác (gợi ý)', () => {
+  const expansions = [{ term: 'Tô Lâm', alternatives: ['Chủ tịch nước Việt Nam'] }];
+
+  it('gộp vào truy vấn chính bằng OR (không tốn thêm lượt); có truy vấn riêng chỉ bằng cách gọi khác', () => {
+    const plan = buildQueryPlan('`Tô Lâm` `Bỉ`', 'domestic', { expansions });
+    const [tolam] = plan.groups[0].terms;
+    expect(tolam).toEqual({ text: 'Tô Lâm', variants: ['Tô Lâm', 'Chủ tịch nước Việt Nam'], expansions: ['Chủ tịch nước Việt Nam'] });
+    expect(plan.groups[0].searchQuery).toBe('("Tô Lâm" OR "Chủ tịch nước Việt Nam") "Bỉ"');
+    expect(buildExpansionQuery(plan.groups[0].terms, [], 'domestic')).toBe('"Chủ tịch nước Việt Nam" "Bỉ"');
+    expect(buildExpansionQuery(buildQueryPlan('`Tô Lâm`', 'domestic').groups[0].terms, [], 'domestic')).toBeNull();
+  });
+
+  it('Ngoài nước: thêm bản không dấu, không đảo thứ tự chức danh như tên người', () => {
+    const [tolam] = buildQueryPlan('`Tô Lâm`', 'foreign', { expansions }).groups[0].terms;
+    expect(tolam.expansions).toEqual(['Chủ tịch nước Việt Nam', 'Chu tich nuoc Viet Nam']);
+  });
+
+  it('truy vấn quá dài thì không gộp cách gọi khác vào truy vấn chính', () => {
+    const many = [{ term: 'Tô Lâm', alternatives: ['Tổng Bí thư Đảng Cộng sản Việt Nam', 'Chủ tịch nước Cộng hòa xã hội chủ nghĩa Việt Nam', 'Bí thư Quân ủy Trung ương', 'Chủ tịch nước Việt Nam'] }];
+    const plan = buildQueryPlan('`Tô Lâm` `Bỉ`', 'domestic', { expansions: many });
+    expect(plan.groups[0].searchQuery).toBe('"Tô Lâm" "Bỉ"');
+  });
+
+  it('bản dịch của cách gọi khác được đánh dấu riêng trong nhóm ngôn ngữ', () => {
+    const plan = withTranslations(
+      buildQueryPlan('`Tô Lâm`', 'foreign', { expansions }),
+      [{ language: 'en', terms: [['To Lam']], termExpansions: [['President of Vietnam']], optional: [] }],
+      'foreign',
+    );
+    expect(plan.groups[1].terms[0]).toEqual({
+      text: 'To Lam',
+      variants: ['To Lam', 'President of Vietnam'],
+      expansions: ['President of Vietnam'],
+    });
+    expect(plan.groups[1].searchQuery).toMatch(/^"To Lam" OR "President of Vietnam" -site:vn/);
   });
 });

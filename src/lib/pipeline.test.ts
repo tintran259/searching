@@ -1041,6 +1041,70 @@ describe('runPipeline — truy vấn bổ sung Trong nước', () => {
   });
 });
 
+describe('runPipeline — cách gọi khác chọn từ gợi ý', () => {
+  const NAME = 'https://vnexpress.net/tong-bi-thu-to-lam-den-bi-4000010.html';
+  const ROLE = 'https://tuoitre.vn/chu-tich-nuoc-viet-nam-tham-bi-2026101210000000.htm';
+  const OTHER = 'https://dantri.com.vn/chu-tich-nuoc-lao-tham-bi-20261012100000000.htm';
+  const BOTH = 'https://nld.com.vn/chu-tich-nuoc-viet-nam-to-lam-tai-bi-2026101210.htm';
+  const pages = new Map<string, ParsedPage>([
+    page(NAME, html({ lead: 'Tổng Bí thư Tô Lâm đến Bỉ.' })),
+    // Chức danh đứng trước tên: vẫn ghi là có nguyên văn "Tô Lâm"
+    page(BOTH, html({ lead: 'Chủ tịch nước Việt Nam, ông Tô Lâm, phát biểu tại Bỉ.' })),
+    page(ROLE, html({ lead: 'Chủ tịch nước Việt Nam thăm chính thức Bỉ.' })),
+    page(OTHER, html({ lead: 'Chủ tịch nước Lào thăm Bỉ.' })),
+  ]);
+
+  async function runExpand(firstPage: SearchResultItem[], extra: Partial<SearchParams> = {}) {
+    const calls: SearchRequest[] = [];
+    const provider: SearchProvider = {
+      id: 'stub-expand',
+      async search(request) {
+        calls.push(request);
+        const items = request.vertical === 'news' ? [] : calls.length === 1 ? firstPage : [item(ROLE, '1 ngày trước')];
+        return { items, hasMore: false, searchedAt: SEARCHED_AT };
+      },
+    };
+    const events: PipelineEvent[] = [];
+    await runPipeline(
+      {
+        query: '`Tô Lâm` `Bỉ`',
+        region: 'domestic',
+        fromDate: '2026-10-01',
+        toDate: '2026-10-13',
+        pagesPerSource: 1,
+        languages: [],
+        localEngines: false,
+        expansions: [{ term: 'Tô Lâm', alternatives: ['Chủ tịch nước Việt Nam'] }],
+        ...extra,
+      },
+      { provider, loadPage: async (url) => pages.get(url)!, lookupWayback: async () => null, retryDelayMs: 0 },
+      (e) => events.push(e),
+    );
+    return {
+      calls,
+      results: byUrl(events.flatMap((e) => (e.type === 'result' ? [e.item] : []))),
+      rejected: byUrl(events.flatMap((e) => (e.type === 'rejected' ? [e.item] : []))),
+    };
+  }
+
+  it('gộp bằng OR vào truy vấn chính; bài chỉ có chức danh được nhận, ghi rõ “khớp theo gợi ý”; chức danh nước khác thì không', async () => {
+    const { calls, results, rejected } = await runExpand([NAME, ROLE, OTHER, BOTH].map((u) => item(u, '1 ngày trước')));
+    expect(results[BOTH].conditions[0]).toMatchObject({ status: 'matched_exact', variant: 'Tô Lâm' });
+    expect(calls[0].query).toBe('("Tô Lâm" OR "Chủ tịch nước Việt Nam") "Bỉ"');
+    expect(results[NAME].conditions[0]).toMatchObject({ term: 'Tô Lâm', status: 'matched_exact' });
+    expect(results[ROLE].conditions[0]).toMatchObject({ term: 'Tô Lâm', status: 'matched_expansion', variant: 'Chủ tịch nước Việt Nam' });
+    expect(rejected[OTHER]).toMatchObject({ reason: 'no_match' });
+  });
+
+  it('trang đầu đầy 10 kết quả: tìm riêng bằng cách gọi khác (+1 lượt) dù đã đủ bài', async () => {
+    const full = [NAME, ...Array.from({ length: 9 }, (_, i) => `https://vnexpress.net/tong-bi-thu-to-lam-den-bi-${i}.html`)];
+    for (const url of full.slice(1)) pages.set(url, parsePage(html({ lead: 'Tổng Bí thư Tô Lâm đến Bỉ.' }), url, NOW));
+    const { calls, results } = await runExpand(full.map((u) => item(u, '1 ngày trước')));
+    expect(calls.map((c) => c.query)).toEqual(['("Tô Lâm" OR "Chủ tịch nước Việt Nam") "Bỉ"', '"Chủ tịch nước Việt Nam" "Bỉ"']);
+    expect(results[ROLE]).toMatchObject({ foundBy: ['Tiếng Việt · Google (truy vấn bổ sung)'] });
+  });
+});
+
 describe('runPipeline — tiếng Nga biến cách tên', () => {
   it('bài viết "То Лама" / "То Ламу" vẫn khớp bản dịch "То Лам"', async () => {
     const pages = new Map<string, ParsedPage>([

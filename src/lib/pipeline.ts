@@ -24,6 +24,7 @@ import type { ParsedPage } from './page-parser';
 import { domainListed, profilePublisher } from './publisher';
 import {
   buildLocalQuery,
+  buildExpansionQuery,
   buildQueryPlan,
   buildSearchQuery,
   cleanPhrase,
@@ -48,6 +49,7 @@ import type { Translator } from './translate/types';
 import {
   type ArticleResult,
   type ConditionCheck,
+  type ConditionStatus,
   type EvidenceLocation,
   type ExtractedDate,
   type HighlightRange,
@@ -102,8 +104,12 @@ interface SearchTarget {
 interface GroupMatcher {
   group: QueryGroup;
   terms: PhraseMatcher[];
+  /** Như `terms` nhưng chỉ cách viết gốc (bỏ cách gọi khác) — được xét trước để bài có tên gốc ghi là "nguyên văn" */
+  coreTerms: PhraseMatcher[];
   /** Với từng từ khoá: các biến thể tính là "nguyên văn" (đã bỏ dấu, viết thường); còn lại là alias */
   exact: Set<string>[];
+  /** Với từng từ khoá: các cách gọi khác người dùng chọn từ gợi ý (đã bỏ dấu, viết thường) */
+  expansion: Set<string>[];
   optional: { word: string; matcher: PhraseMatcher }[];
 }
 
@@ -154,18 +160,28 @@ function buildGroupMatchers(plan: QueryPlan, region: Region): GroupMatcher[] {
     const words = meaningful.length ? meaningful : cleanPhrase(group.optional.join(' ')).split(' ').filter(Boolean);
     // Tiếng Nga biến cách từ cuối của tên / cụm (То Лам → То Лама, Дания → Дании)
     const inflection = group.language === 'ru' ? ('ru' as const) : undefined;
+    // Nhóm dịch khớp cả cách viết gốc của từ khoá: báo nước ngoài hay giữ nguyên tên có dấu ("President Tô Lâm")
+    const variantsOf = (i: number, keep: (term: QueryGroup['terms'][number], v: string) => boolean = () => true) =>
+      (group === source ? [group.terms[i]] : [group.terms[i], source.terms[i]]).flatMap((t) => t.variants.filter((v) => keep(t, v)));
+    const terms = group.terms.map((_, i) => new PhraseMatcher(variantsOf(i), { inflection }));
+    // Từ khoá có cách gọi khác: thêm bộ khớp chỉ cách viết gốc; không có thì dùng chung bộ khớp
+    const coreTerms = group.terms.map((_, i) => {
+      const core = variantsOf(i, (t, v) => !t.expansions?.includes(v));
+      return core.length === variantsOf(i).length ? terms[i] : new PhraseMatcher(core, { inflection });
+    });
     return {
       group,
-      // Nhóm dịch khớp cả cách viết gốc của từ khoá: báo nước ngoài hay giữ nguyên tên có dấu ("President Tô Lâm")
-      terms: group.terms.map(
-        (t, i) => new PhraseMatcher(group === source ? t.variants : [...t.variants, ...source.terms[i].variants], { inflection }),
-      ),
+      terms,
+      coreTerms,
       // Nguyên văn: từng lựa chọn người dùng nhập (kể cả bản không dấu) và bản dịch chính của ngôn ngữ đó;
       // đảo thứ tự tên, bản dịch phụ là alias
       exact: group.terms.map((t, i) => {
         const typed = termAlternatives(source.terms[i].text);
         return new Set([...typed, ...(group === source ? [] : t.variants.slice(0, 1))].map(exactKey));
       }),
+      expansion: group.terms.map(
+        (t, i) => new Set([...(t.expansions ?? []), ...(group === source ? [] : (source.terms[i].expansions ?? []))].map(exactKey)),
+      ),
       // Tìm Ngoài nước: từ phụ khớp cả bản không dấu ("Tran" ~ "Trần")
       optional: words.map((word) => ({
         word,
@@ -192,8 +208,9 @@ function matchGroups(matchers: GroupMatcher[], texts: EvidenceText[]): GroupHit 
     return null;
   };
   for (const matcher of matchers) {
+    // Từ khoá: tìm cách viết gốc trước, không có mới dùng cách gọi khác (gợi ý)
     const found = matcher.terms.length
-      ? matcher.terms.map(findIn)
+      ? matcher.terms.map((t, i) => (matcher.coreTerms[i] === t ? findIn(t) : (findIn(matcher.coreTerms[i]) ?? findIn(t))))
       : matcher.optional.map((o) => findIn(o.matcher)).filter((f) => f !== null);
     const complete = matcher.terms.length
       ? found.every((f) => f !== null)
@@ -206,14 +223,20 @@ function matchGroups(matchers: GroupMatcher[], texts: EvidenceText[]): GroupHit 
   return null;
 }
 
-/** Trạng thái từng từ khoá bắt buộc: nguyên văn / alias khi đã đọc trang, "chưa xác minh" khi chỉ có đoạn trích */
+function conditionStatus(matcher: GroupMatcher, i: number, variant: string, verification: Verification): ConditionStatus {
+  if (verification === 'unverified') return 'unverified';
+  const key = exactKey(variant);
+  if (matcher.exact[i].has(key)) return 'matched_exact';
+  return matcher.expansion[i].has(key) ? 'matched_expansion' : 'matched_alias';
+}
+
+/** Trạng thái từng từ khoá bắt buộc: nguyên văn / gợi ý / alias khi đã đọc trang, "chưa xác minh" khi chỉ có đoạn trích */
 function conditionsOf(hit: GroupHit, verification: Verification, terms: QueryGroup['terms']): ConditionCheck[] {
   const { matcher } = hit;
   if (!matcher.terms.length) return [];
   return hit.matches.map((m, i) => ({
     term: terms[i].text,
-    status:
-      verification === 'unverified' ? 'unverified' : matcher.exact[i].has(exactKey(m.variant)) ? 'matched_exact' : 'matched_alias',
+    status: conditionStatus(matcher, i, m.variant, verification),
     variant: m.variant,
     where: hit.where[i],
   }));
@@ -300,6 +323,8 @@ export async function runPipeline(
   const tasksByLanguage = new Map<string, Promise<void>[]>();
   const candidates = new Map<string, Candidate>();
   const accepted = new Set<string>();
+  /** Ngôn ngữ có trang kết quả đầu tiên đầy (10 kết quả): còn nhiều bài nữa → cách gọi khác nên tìm riêng */
+  const fullFirstPage = new Set<string>();
   /** Số bài được nhận (kể cả chưa xác minh) theo ngôn ngữ của nguồn tìm ra — để biết ngôn ngữ nào còn thiếu */
   const acceptedByLanguage = new Map<string, number>();
   const plannedQueries = new Set<string>();
@@ -351,7 +376,8 @@ export async function runPipeline(
   const paidCalls = () => progress.searchCalls - progress.cachedCalls;
 
   // A/B. Kế hoạch truy vấn, kèm bản dịch nếu có chọn ngôn ngữ
-  let plan = buildQueryPlan(params.query, params.region, { exclude });
+  const expansions = params.expansions ?? [];
+  let plan = buildQueryPlan(params.query, params.region, { exclude, expansions });
   if (languages.length) {
     report();
     const translateStart = Date.now();
@@ -378,13 +404,16 @@ export async function runPipeline(
     const optionalText = hasMeaningfulOptional(source.optional) ? source.optional.join(' ') : '';
     // Mỗi từ khoá bắt buộc (mỗi lựa chọn của nhóm OR) dịch riêng (giữ nguyên cụm, phiên âm tên); phần từ phụ dịch theo nghĩa
     const termTexts = source.terms.map((t) => termAlternatives(t.text));
-    const texts = [...termTexts.flat(), ...(optionalText ? [optionalText] : [])];
+    // Cách gọi khác (gợi ý) cũng dịch riêng: "Chủ tịch nước Việt Nam" → "President of Vietnam"…
+    const expansionTexts = source.terms.map((t) => expansions.find((e) => e.term === t.text)?.alternatives ?? []);
+    const texts = [...termTexts.flat(), ...expansionTexts.flat(), ...(optionalText ? [optionalText] : [])];
     const termCount = termTexts.flat().length;
+    const expansionCount = expansionTexts.flat().length;
     // Mỗi phần dịch riêng: phần nào lỗi thì chỉ mất phần đó (vd từ phụ lỗi → vẫn tìm bằng từ khoá chính đã dịch)
     const settled = await Promise.allSettled(texts.map((text) => translator.translate(text, languages, signal)));
     if (signal?.aborted) return base;
     const failures = settled.flatMap((r, i) =>
-      r.status === 'rejected' ? [{ text: texts[i], isTerm: i < termCount, reason: r.reason }] : [],
+      r.status === 'rejected' ? [{ text: texts[i], kind: i < termCount ? 'term' : i < termCount + expansionCount ? 'expansion' : 'optional', reason: r.reason }] : [],
     );
     const reasonOf = (err: unknown) => errorMessage(err).replace(/[.\s]+$/, '');
     if (failures.length === texts.length) {
@@ -402,20 +431,29 @@ export async function runPipeline(
       });
     }
     for (const f of failures) {
-      const effect = f.isTerm ? withoutTranslation : 'Các ngôn ngữ khác chỉ tìm bằng từ khoá chính.';
+      const effect =
+        f.kind === 'term'
+          ? withoutTranslation
+          : f.kind === 'expansion'
+            ? 'Các ngôn ngữ khác không dùng cách gọi khác này.'
+            : 'Các ngôn ngữ khác chỉ tìm bằng từ khoá chính.';
       emit({ type: 'warning', message: `Không dịch được “${f.text}”: ${reasonOf(f.reason)}. ${effect}` });
     }
     const variantsOf = (index: number, code: string) => {
       const r = settled[index];
       return r.status === 'fulfilled' ? (r.value.find((t) => t.language === code)?.variants ?? []) : [];
     };
-    // Vị trí bắt đầu của từng từ khoá trong `texts` (một từ khoá có thể có nhiều lựa chọn OR)
-    const offsets = termTexts.map((_, i) => termTexts.slice(0, i).reduce((n, alts) => n + alts.length, 0));
+    // Vị trí bắt đầu của từng từ khoá / cách gọi khác trong `texts` (một từ khoá có thể có nhiều lựa chọn OR)
+    const offsetsOf = (lists: string[][], base: number) =>
+      lists.map((_, i) => base + lists.slice(0, i).reduce((n, alts) => n + alts.length, 0));
+    const offsets = offsetsOf(termTexts, 0);
+    const expansionOffsets = offsetsOf(expansionTexts, termCount);
     const translations = languages.map((l) => {
-      const optionalVariants = optionalText ? variantsOf(termCount, l.code) : [];
+      const optionalVariants = optionalText ? variantsOf(termCount + expansionCount, l.code) : [];
       return {
         language: l.code,
         terms: termTexts.map((alts, i) => alts.flatMap((_, j) => variantsOf(offsets[i] + j, l.code))),
+        termExpansions: expansionTexts.map((alts, i) => alts.flatMap((_, j) => variantsOf(expansionOffsets[i] + j, l.code))),
         optional: optionalVariants.slice(0, 1),
         altOptional: optionalVariants.slice(1),
       };
@@ -945,6 +983,7 @@ export async function runPipeline(
         const response = await search(target, page);
         if (!response) break; // lỗi: đã ghi vào báo cáo nguồn
         const fresh = collect(response, source);
+        if (page === 0 && source.tier === 1 && response.items.length >= RESULTS_PER_PAGE) fullFirstPage.add(source.language);
         if (!response.hasMore || response.items.length === 0) {
           source.exhausted = true;
           break;
@@ -990,8 +1029,20 @@ export async function runPipeline(
    * Tin tức của Google. Ngoài nước không dùng mục Tin tức: Google News không cho dùng -site: nên kết quả chủ yếu là
    * bản tiếng nước ngoài của báo Việt Nam (đã thử thực tế: 9/10 kết quả), tốn lượt mà không có bài dùng được.
    */
-  function tier2For(group: QueryGroup): SearchTarget[] {
+  function tier2For(group: QueryGroup, { gap }: { gap: boolean }): SearchTarget[] {
     const list: SearchTarget[] = [];
+    // Cách gọi khác (gợi ý) tìm riêng: mỗi cách gọi có đủ 10 chỗ thay vì chia chỗ với từ khoá gốc
+    const expansionQuery = buildExpansionQuery(group.terms, group.optional, params.region, { exclude });
+    if (expansionQuery) {
+      list.push({
+        group,
+        engine: 'google',
+        vertical: 'web',
+        query: expansionQuery,
+        report: newReport(group.language, 'google', expansionQuery, { tier: 2, suffix: ':expand', pages: 1 }),
+      });
+    }
+    if (!gap) return list.slice(0, 1).map(addToPlan).filter((t): t is SearchTarget => t !== null);
     if (params.region === 'domestic') {
       const newsQuery = buildSearchQuery(group.terms, group.optional, params.region, { exclude, vertical: 'news' });
       list.push({
@@ -1030,8 +1081,13 @@ export async function runPipeline(
     searchGroups.map(async (group) => {
       await Promise.all(tasksByLanguage.get(group.language) ?? []);
       if (signal?.aborted || stopSearching) return;
-      if ((acceptedByLanguage.get(group.language) ?? 0) >= GAP_TARGET) return;
-      const targets = tier2For(group);
+      // Tìm bổ sung khi: ngôn ngữ còn thiếu bài; hoặc có cách gọi khác mà trang đầu đã đầy (cách gọi khác bị
+      // chia chỗ với từ khoá gốc) hay truy vấn chính quá dài nên chưa gộp cách gọi khác vào
+      const gap = (acceptedByLanguage.get(group.language) ?? 0) < GAP_TARGET;
+      const hasExpansions = group.terms.some((t) => t.expansions?.length);
+      const expansionsInMain = group.terms.some((t) => t.expansions?.some((e) => group.searchQuery.includes(`"${e}"`)));
+      if (!gap && !(hasExpansions && (fullFirstPage.has(group.language) || !expansionsInMain))) return;
+      const targets = tier2For(group, { gap });
       if (!targets.length) return;
       const run = searchQueue.then(async () => {
         if (signal?.aborted || stopSearching) return;

@@ -61,6 +61,7 @@ export const REJECT_REASON_LABELS: Record<RejectReason, string> = {
 export const CONDITION_LABELS: Record<ConditionStatus, string> = {
   matched_exact: 'Có nguyên văn',
   matched_alias: 'Có cách viết khác',
+  matched_expansion: 'Khớp theo gợi ý',
   not_matched: 'Không có',
   unverified: 'Chỉ thấy trên Google',
 };
