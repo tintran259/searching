@@ -3,9 +3,10 @@
 import { Select } from 'antd';
 import { useState, type FormEvent } from 'react';
 import { LOCAL_ENGINES, SEARCH_LANGUAGES } from '@/config/languages';
+import { DEFAULT_SOCIAL_PLATFORMS, SOCIAL_SEARCH_PLATFORMS, type SocialPlatformId } from '@/config/sources';
 import { SEARCH_LIMITS, defaultFromDate, parseSearchParams } from '@/lib/search-params';
 import type { SearchQuota } from '@/lib/search/types';
-import type { Region, SearchParams, SourcePolicy } from '@/lib/types';
+import type { Region, SearchParams, SourcePolicy, SourceType } from '@/lib/types';
 import { ClientOnly } from './ClientOnly';
 import { DateRangePicker } from './DateRangePicker';
 import { KeywordSuggestions } from './KeywordSuggestions';
@@ -31,9 +32,21 @@ const REGIONS: { value: Region; label: string; hint: string }[] = [
   },
 ];
 
+const SOURCE_TYPES: { value: SourceType; label: string; hint: string }[] = [
+  { value: 'news', label: 'Báo', hint: 'Chỉ báo, trang tin. Bài mạng xã hội bị loại khỏi kết quả.' },
+  {
+    value: 'social',
+    label: 'Mạng xã hội',
+    hint: 'Chỉ bài đăng trên các nền tảng chọn bên dưới, có trên Google. Chỉ kiểm tra được tiêu đề và đoạn trích nên nằm ở tab “Chưa xác minh”.',
+  },
+  { value: 'both', label: 'Cả hai', hint: 'Mỗi ngôn ngữ một truy vấn báo và một truy vấn mạng xã hội, không chiếm chỗ của nhau (gấp đôi số lượt).' },
+];
+
 export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
   const [query, setQuery] = useState('');
   const [region, setRegion] = useState<Region>('domestic');
+  const [sourceTypes, setSourceTypes] = useState<SourceType>('news');
+  const [platforms, setPlatforms] = useState<SocialPlatformId[]>(DEFAULT_SOCIAL_PLATFORMS);
   // Chưa tự chọn ngày thì khoảng ngày mặc định đi theo `today` (hôm qua → hôm nay), sang ngày mới tự cập nhật
   const [pickedRange, setPickedRange] = useState<{ from: string; to: string } | null>(null);
   const fromDate = pickedRange?.from ?? defaultFromDate(today);
@@ -56,13 +69,22 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
   // Ngôn ngữ dịch và công cụ địa phương chỉ dùng khi tìm Ngoài nước; Trong nước chỉ tìm tiếng Việt
   const foreign = region === 'foreign';
   const activeLanguages = foreign ? languages : [];
-  const localTargets = foreign && localEngines
+  const wantNews = sourceTypes !== 'social';
+  const wantSocial = sourceTypes !== 'news';
+  // Baidu / Yandex / Naver chỉ dùng để tìm báo
+  const localTargets = foreign && localEngines && wantNews
     ? SEARCH_LANGUAGES.filter((l) => l.localEngine && languages.includes(l.code)).map((l) => LOCAL_ENGINES[l.localEngine!])
     : [];
-  // Mỗi nguồn (tiếng Việt, từng ngôn ngữ, từng công cụ địa phương) lấy tối đa `pages` × 10 kết quả, mỗi lượt 10 kết quả
+  // Mỗi nguồn (tiếng Việt, từng ngôn ngữ, từng công cụ địa phương; tìm cả hai thì thêm một nguồn mạng xã hội cho mỗi
+  // ngôn ngữ) lấy tối đa `pages` × 10 kết quả, mỗi lượt 10 kết quả.
   // Trong nước: chỉ tiếng Việt. Ngoài nước: chỉ các ngôn ngữ đã chọn (không tìm bằng tiếng Việt)
-  const sources = (foreign ? 0 : 1) + activeLanguages.length + localTargets.length;
+  const languageSources = (foreign ? 0 : 1) + activeLanguages.length;
+  // Mỗi nền tảng mạng xã hội là một nguồn riêng cho mỗi ngôn ngữ
+  const sources = (wantNews ? languageSources + localTargets.length : 0) + (wantSocial ? languageSources * platforms.length : 0);
+  const missingPlatforms = wantSocial && platforms.length === 0;
   const missingLanguages = foreign && languages.length === 0;
+  // Chưa chọn ngôn ngữ (Ngoài nước) hoặc chưa chọn nền tảng (mạng xã hội): chưa có gì để tìm
+  const nothingToSearch = missingLanguages || missingPlatforms;
   // Truy vấn chính cần `sources × pages` lượt. Số lượt tìm tối đa không được thấp hơn mức này (nếu không, số kết quả
   // mỗi ngôn ngữ bị cắt ngầm): thấp hơn thì tự nâng lên mức chọn được gần nhất. Phần dư dành cho truy vấn bổ sung.
   // Chọn thêm ngôn ngữ sau khi đã chọn nhiều kết quả: giảm số trang cho vừa trần lượt tìm của một lượt
@@ -72,9 +94,10 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
     budget >= mainCalls ? budget : (SEARCH_LIMITS.budgetOptions.find((n) => n >= mainCalls) ?? SEARCH_LIMITS.maxBudget);
   const budgetRaised = effectiveBudget !== budget;
   const extraCalls = Math.max(0, effectiveBudget - mainCalls);
-  const maxCalls = Math.min(effectiveBudget, sources * (effectivePages + 2));
+  // Truy vấn bổ sung (tối đa 2 lượt mỗi ngôn ngữ thiếu bài) chỉ dùng để tìm báo
+  const maxCalls = Math.min(effectiveBudget, mainCalls + (wantNews ? languageSources * 2 : 0));
   // Nhãn số kết quả: ghi luôn tổng lượt của truy vấn chính để khỏi phải tự nhân (vd "4 ngôn ngữ × 2 lượt = 8 lượt")
-  const sourceWord = localTargets.length ? 'nguồn' : 'ngôn ngữ';
+  const sourceWord = localTargets.length || sourceTypes === 'both' || (wantSocial && platforms.length > 1) ? 'nguồn' : 'ngôn ngữ';
   const pagesLabel = (n: number) =>
     sources > 1
       ? `${n * 10} kết quả mỗi ${sourceWord} · ${sources} ${sourceWord} × ${n} lượt = ${sources * n} lượt`
@@ -84,9 +107,14 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
     ...(foreign ? [] : ['tiếng Việt']),
     ...(activeLanguages.length ? [`${activeLanguages.length} ngôn ngữ`] : []),
     ...(localTargets.length ? [localTargets.map((e) => e.name).join(', ')] : []),
-  ].join(' + ');
+  ].join(' + ') +
+    (wantSocial
+      ? `, ${sourceTypes === 'both' ? 'báo + ' : ''}${platforms.length} nền tảng mạng xã hội (${SOCIAL_SEARCH_PLATFORMS.filter((p) => platforms.includes(p.id))
+          .map((p) => p.name)
+          .join(', ')})`
+      : '');
   // Mỗi nguồn tốn ít nhất 1 lượt → chắc chắn vượt thì cảnh báo; chỉ mức tối đa vượt thì nhắc nhẹ
-  const willExceedQuota = searchesLeft !== null && sources > searchesLeft && !missingLanguages;
+  const willExceedQuota = searchesLeft !== null && sources > searchesLeft && !nothingToSearch;
   const mayExceedQuota = searchesLeft !== null && !willExceedQuota && maxCalls > searchesLeft;
 
   function submit(event: FormEvent) {
@@ -106,6 +134,8 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
         deny: denyText,
         policy: sourcePolicy,
         republished: excludeRepublished ? '1' : '0',
+        sources: sourceTypes,
+        platforms: platforms.join(','),
         // Từ khoá không còn trong ô thì bị bỏ khi đọc tham số
         expand: JSON.stringify(
           Object.entries(expansionPicks)
@@ -145,7 +175,7 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
               className="inline-flex h-13 items-center justify-center gap-2 rounded-xl bg-accent px-7 text-base font-semibold text-accent-fg shadow-card transition hover:bg-accent-hover focus-visible:ring-4 focus-visible:ring-accent/30 focus-visible:outline-none active:scale-[0.98]"
             >
               <SearchIcon className="size-5" /> Tìm bài viết
-              {!missingLanguages && (
+              {!nothingToSearch && (
                 <span
                   className="rounded-md bg-accent-fg/15 px-1.5 py-0.5 text-xs font-medium tabular-nums"
                   title={`Tối đa ${maxCalls} lượt tìm SerpApi cho lượt này${searchesLeft !== null ? ` · còn ${searchesLeft} lượt trong tháng` : ''}`}
@@ -197,6 +227,77 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
               );
             })}
           </div>
+
+          <div className="mt-4 flex flex-col gap-1.5">
+            <span id="source-types-label" className="text-sm font-semibold">
+              Loại nguồn
+            </span>
+            <div
+              role="radiogroup"
+              aria-labelledby="source-types-label"
+              className="inline-flex w-full rounded-xl bg-surface-muted p-1 ring-1 ring-line sm:w-auto"
+            >
+              {SOURCE_TYPES.map((t) => (
+                <label
+                  key={t.value}
+                  className={`flex flex-1 cursor-pointer items-center justify-center rounded-lg px-4 py-1.5 text-sm font-medium whitespace-nowrap transition has-disabled:cursor-not-allowed has-disabled:opacity-60 has-focus-visible:ring-3 has-focus-visible:ring-accent/30 sm:flex-none ${
+                    sourceTypes === t.value ? 'bg-surface text-fg shadow-card' : 'text-muted hover:text-fg'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="source-types"
+                    value={t.value}
+                    checked={sourceTypes === t.value}
+                    onChange={() => setSourceTypes(t.value)}
+                    className="sr-only"
+                  />
+                  {t.label}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs leading-relaxed text-pretty text-muted">{SOURCE_TYPES.find((t) => t.value === sourceTypes)?.hint}</p>
+            {wantSocial && (
+              <div className="flex flex-col gap-1.5">
+                <span id="platforms-label" className="text-xs font-medium">
+                  Nền tảng (mỗi nền tảng 1 lượt cho mỗi ngôn ngữ)
+                </span>
+                <div role="group" aria-labelledby="platforms-label" className="flex flex-wrap gap-1.5">
+                  {SOCIAL_SEARCH_PLATFORMS.map((p) => {
+                    const checked = platforms.includes(p.id);
+                    return (
+                      <label
+                        key={p.id}
+                        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium ring-1 transition has-disabled:cursor-not-allowed has-disabled:opacity-60 has-focus-visible:ring-3 has-focus-visible:ring-accent/30 ${
+                          checked ? 'bg-accent text-accent-fg ring-accent' : 'bg-surface text-fg ring-line hover:bg-line/60'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setPlatforms((prev) => (prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id]))
+                          }
+                          className="sr-only"
+                        />
+                        {checked ? '✓ ' : ''}
+                        {p.name}
+                      </label>
+                    );
+                  })}
+                </div>
+                {missingPlatforms && (
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
+                    <AlertIcon className="size-4 shrink-0" />
+                    Chọn ít nhất một nền tảng để tìm mạng xã hội.
+                  </p>
+                )}
+                <p className="text-xs leading-relaxed text-pretty text-muted">
+                  Tìm riêng từng nền tảng vì khi gộp chung, Google ưu tiên Facebook và bỏ sót bài của nền tảng khác.
+                </p>
+              </div>
+            )}
+          </div>
         </fieldset>
 
         <fieldset disabled={running} className="min-w-0">
@@ -221,23 +322,25 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
               Chưa chọn ngôn ngữ nào: hãy chọn ít nhất một ngôn ngữ / nước để tìm báo nước ngoài.
             </p>
           )}
-          <label className="flex cursor-pointer items-start gap-3 has-disabled:cursor-not-allowed has-disabled:opacity-60">
-            <input
-              type="checkbox"
-              checked={localEngines}
-              onChange={(e) => setLocalEngines(e.target.checked)}
-              disabled={running}
-              className="mt-0.5 size-4 shrink-0 accent-accent"
-            />
-            <span className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium">Tìm thêm trên công cụ tìm kiếm của nước đó</span>
-              <span className="text-xs leading-relaxed text-pretty text-muted">
-                Baidu cho tiếng Trung (giản thể), Yandex cho tiếng Nga, Naver (mục Tin tức) cho tiếng Hàn. Báo các nước này
-                nhiều bài không có trên Google. Mỗi công cụ được tính như một nguồn riêng, cũng lấy tối đa {effectivePages * 10} kết
-                quả.
+          {wantNews && (
+            <label className="flex cursor-pointer items-start gap-3 has-disabled:cursor-not-allowed has-disabled:opacity-60">
+              <input
+                type="checkbox"
+                checked={localEngines}
+                onChange={(e) => setLocalEngines(e.target.checked)}
+                disabled={running}
+                className="mt-0.5 size-4 shrink-0 accent-accent"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">Tìm thêm trên công cụ tìm kiếm của nước đó</span>
+                <span className="text-xs leading-relaxed text-pretty text-muted">
+                  Baidu cho tiếng Trung (giản thể), Yandex cho tiếng Nga, Naver (mục Tin tức) cho tiếng Hàn. Báo các nước này
+                  nhiều bài không có trên Google. Mỗi công cụ được tính như một nguồn riêng, cũng lấy tối đa {effectivePages * 10} kết
+                  quả.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          )}
 
           {/* Chính sách nguồn: mặc định nhận mọi domain có đủ nội dung; báo Việt Nam luôn bị loại khi tìm Ngoài nước */}
           <fieldset disabled={running} className="flex flex-col gap-2">
@@ -422,8 +525,8 @@ export function SearchForm({ today, running, quota, onSearch, onStop }: Props) {
 
       {/* Ước tính lượt tìm */}
       <div className="flex flex-col gap-1 text-xs text-muted">
-        {missingLanguages ? (
-          <p>Chưa chọn ngôn ngữ nào nên chưa có gì để tìm.</p>
+        {nothingToSearch ? (
+          <p>{missingLanguages ? 'Chưa chọn ngôn ngữ nào' : 'Chưa chọn nền tảng mạng xã hội nào'} nên chưa có gì để tìm.</p>
         ) : (
           <p>
             Dự kiến: <strong className="font-semibold text-fg">{sources} nguồn</strong> ({sourcesText}) × tối đa{' '}

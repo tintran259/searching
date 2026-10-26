@@ -201,6 +201,22 @@ Cách gọi đã chọn:
 - Bài chỉ có cách gọi khác (không có từ khoá gốc) vẫn được nhận, từ khoá ghi trạng thái **"Khớp theo gợi ý"**; các từ khoá chính khác vẫn bắt buộc. Bài có từ khoá gốc thì luôn ghi "Có nguyên văn", dù cách gọi khác xuất hiện trước.
 - Thực tế: báo Việt gần như luôn ghi kèm tên ("Tổng Bí thư, Chủ tịch nước Tô Lâm") nên gợi ý có ích nhất khi tìm Ngoài nước. Thử "Tô Lâm đi Bỉ", tiếng Anh: thêm 1 lượt tìm riêng bằng cách gọi khác, số bài tăng từ 3 lên 6.
 
+### Loại nguồn: Báo / Mạng xã hội / Cả hai
+
+Ô "Loại nguồn" dưới Phạm vi:
+
+| Chọn | Truy vấn gửi Google | Kết quả |
+| --- | --- | --- |
+| **Báo** (mặc định) | thêm `-site:facebook.com -site:youtube.com -site:tiktok.com -site:instagram.com -site:x.com -site:threads.com -site:threads.net` | chỉ báo; bài mạng xã hội Google vẫn trả lẫn vào bị loại (lý do "Bài đăng mạng xã hội — đang chọn chỉ tìm Báo") |
+| **Mạng xã hội** | mỗi nền tảng đã chọn một truy vấn: `"Tô Lâm" "Bỉ" site:facebook.com`, `"Tô Lâm" "Bỉ" (site:threads.com OR site:threads.net)`… — có từ khoá chính thì bỏ từ phụ (bài đăng ngắn hay thiếu từ phụ; thử thực tế: thêm "đi" → 0 kết quả, bỏ → 8) | chỉ bài đăng mạng xã hội, ở tab "Chưa xác minh" (chỉ kiểm tra được tiêu đề + đoạn trích) |
+| **Cả hai** | truy vấn báo + truy vấn của từng nền tảng đã chọn, mỗi truy vấn có 10 chỗ riêng | báo + mạng xã hội |
+
+**Nền tảng** (khi tìm mạng xã hội): Facebook (chọn sẵn), Instagram, Threads, X (Twitter), YouTube, TikTok — mỗi nền tảng một truy vấn riêng = **1 lượt cho mỗi ngôn ngữ**. Không gộp chung vì Google ưu tiên Facebook và bỏ sót nền tảng khác (thử thực tế: chỉ `site:threads.com` ra 7 bài Threads; gộp với Facebook + Instagram ra 0 bài Threads). Threads dùng cả `threads.com` (tên miền hiện tại) và `threads.net` (cũ).
+
+Một số kết quả mạng xã hội SerpApi chỉ trả link `/goto?url=…` (Google ẩn URL thật): app mở link chuyển hướng của Google (`redirect_link`) để lấy URL thật; không lấy được thì bỏ kết quả đó.
+
+Truy vấn bổ sung (cách diễn đạt khác, Google News…) chỉ dùng để tìm báo. Baidu / Yandex / Naver chỉ dùng khi có tìm báo. Vẫn chỉ tìm được bài mạng xã hội mà Google đã lập chỉ mục.
+
 ### Truy vấn và chi phí SerpApi
 
 - **Truy vấn chính**: mỗi ngôn ngữ 1 truy vấn trên Google (và Baidu / Yandex / Naver nếu bật — mặc định tắt). Từ khoá chính bọc ngoặc kép; nhóm OR `` `Bỉ | Brussels` `` nối bằng OR; cụm loại trừ thêm `-"cụm"`; Ngoài nước thêm `-site:vn` và các domain báo VN không đuôi .vn. Phần từ phụ chỉ gồm từ quá chung ("đi", "về"…) thì không dịch.
@@ -208,6 +224,7 @@ Cách gọi đã chọn:
 - **Số lượt tìm tối đa** (form, mặc định 10, tối đa 100): trần số lượt SerpApi của cả lượt tìm (lượt lấy từ bộ nhớ đệm không tính). Không chọn được mức thấp hơn số lượt truy vấn chính cần (`số nguồn × số trang`); thêm ngôn ngữ / tăng số kết quả làm vượt mức đã chọn thì tự nâng lên và báo. Hết lượt thì dừng và báo rõ. Trang kết quả không có URL mới thì không lấy trang sau. Nút "Tìm bài viết" hiện số lượt tối đa dự kiến.
 - **Xuất file**: chọn xuất tab đang xem hoặc cả hai tab Đã xác minh + Chưa xác minh (cột "Xác minh" phân biệt).
 - Lỗi tạm thời của SerpApi (timeout, 5xx) được thử lại 1 lần sau 1,5 giây; lỗi API key / hết quota thì dừng ngay.
+- Trang đầu **không gửi `start=0`**: thử thực tế, `start=0` làm Google nới lỏng truy vấn, bỏ qua `site:` và cụm trong ngoặc kép (trả cả trang không liên quan); không gửi `start` thì Google làm đúng truy vấn (cùng truy vấn: 2 → 10 kết quả, mạng xã hội 0 → 8 bài đúng chủ đề).
 - "Số liệu của lượt tìm" (dưới bảng tiến trình): số truy vấn đã lập / bỏ vì trùng, lượt SerpApi đã dùng / tối đa, thử lại, URL khác nhau, tỉ lệ trùng, tỉ lệ tải trang thành công, số bài có đủ từ khoá, số bài có nguồn đã xác minh, thời gian dịch / tìm / kiểm tra.
 
 ### Cache và quota

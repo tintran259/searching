@@ -54,5 +54,6 @@ describe('sourceNote', () => {
     expect(sourceLabel('vi', 'google')).toBe('Tiếng Việt · Google');
     expect(sourceLabel('en', 'google', 'news', 2)).toBe('Tiếng Anh · Google News');
     expect(sourceLabel('en', 'google', 'web', 2)).toBe('Tiếng Anh · Google (truy vấn bổ sung)');
+    expect(sourceLabel('en', 'google', 'social', 1, 'Threads')).toBe('Tiếng Anh · Threads (qua Google)');
   });
 });

@@ -298,3 +298,28 @@ describe('cách gọi khác (gợi ý)', () => {
     expect(plan.groups[1].searchQuery).toMatch(/^"To Lam" OR "President of Vietnam" -site:vn/);
   });
 });
+
+describe('loại nguồn trong truy vấn', () => {
+  const terms = [{ text: 'Tô Lâm', variants: ['Tô Lâm'] }];
+  it('news: thêm -site: các nền tảng mạng xã hội (sau -site: báo Việt khi tìm Ngoài nước)', () => {
+    expect(buildSearchQuery(terms, [], 'domestic', { target: 'news' })).toBe(
+      '"Tô Lâm" -site:facebook.com -site:youtube.com -site:tiktok.com -site:instagram.com -site:x.com -site:threads.com -site:threads.net',
+    );
+    expect(buildSearchQuery(terms, [], 'foreign', { target: 'news' })).toMatch(/^"Tô Lâm" -site:vn .* -site:facebook\.com/);
+  });
+
+  it('social: (site:a OR site:b …), không thêm -site: báo Việt; mục Tin tức không có site:', () => {
+    expect(buildSearchQuery(terms, [], 'foreign', { target: 'social' })).toBe(
+      '"Tô Lâm" (site:facebook.com OR site:youtube.com OR site:tiktok.com OR site:instagram.com OR site:x.com OR site:threads.com OR site:threads.net)',
+    );
+    expect(buildSearchQuery(terms, [], 'domestic', { target: 'social', vertical: 'news' })).toBe('"Tô Lâm"');
+  });
+
+  it('social: truy vấn dài thì bớt nền tảng cuối danh sách để không vượt 32 từ', () => {
+    const long = buildSearchQuery(terms, ['một hai ba bốn năm sáu bảy tám chín mười mười một mười hai mười ba mười bốn'], 'domestic', {
+      target: 'social',
+    });
+    expect(long.split(/\s+/).length).toBeLessThanOrEqual(32);
+    expect(long).toMatch(/\(site:facebook\.com OR /);
+  });
+});

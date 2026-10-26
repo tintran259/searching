@@ -8,6 +8,8 @@ import { sortArticles } from './sort';
 import type { ArticleResult, ExtractedDate, PipelineEvent, RejectedItem, SearchParams } from './types';
 
 const NOW = new Date('2026-10-13T12:00:00+07:00');
+/** Truy vấn tìm báo (mặc định) loại các nền tảng mạng xã hội để chúng không chiếm chỗ của báo */
+const NO_SOCIAL = ' -site:facebook.com -site:youtube.com -site:tiktok.com -site:instagram.com -site:x.com -site:threads.com -site:threads.net';
 const SEARCHED_AT = '2026-10-13T05:00:00.000Z';
 const FILLER =
   'Theo báo cáo của sở, dự án đã hoàn thành đúng tiến độ với sự tham gia của nhiều đơn vị trong và ngoài tỉnh. ' +
@@ -195,23 +197,14 @@ describe('runPipeline — Trong nước', () => {
     expect(sorted.map((r) => [r.url, r.date?.date ?? null, r.date?.source ?? null])).toEqual([
       ['https://dantri.com.vn/xa-hoi/du-an-20100105101010123.htm', '2010-01-05', 'url'],
       ['https://nld.com.vn/thoi-su/bai-khong-ngay.htm', '2011-04-03', 'snippet'],
-      // Bài đăng mạng xã hội: xác minh bằng đoạn trích Google, ngày theo Google
-      ['https://www.facebook.com/baoxyz/posts/2', '2012-03-03', 'snippet'],
       ['https://plo.vn/a-moi.html', '2013-02-03', 'jsonld'],
       ['https://laodong.vn/bai-viet.ldo', '2013-06-01', 'wayback'],
       ['https://vtv.vn/bai-goc.htm', '2014-07-07', 'time'],
       ['https://vnexpress.net/ong-tran-van-a-nhan-giai-3923456.html', '2015-03-02', 'meta'],
-      // Google không ghi ngày → "Không rõ ngày", xếp cuối
-      ['https://www.youtube.com/watch?v=abc', null, null],
     ]);
     expect(sortArticles(results, 'desc').map((r) => r.date?.date ?? null)).toEqual([
-      '2015-03-02', '2014-07-07', '2013-06-01', '2013-02-03', '2012-03-03', '2011-04-03', '2010-01-05', null,
+      '2015-03-02', '2014-07-07', '2013-06-01', '2013-02-03', '2011-04-03', '2010-01-05',
     ]);
-    expect(byUrl(results)['https://www.youtube.com/watch?v=abc']).toMatchObject({
-      sourceName: 'YouTube · Mạng xã hội',
-      region: 'domestic',
-      title: 'Trần Văn A: hành trình xây cầu',
-    });
   });
 
   it('không kết quả nào chứa tên dài hơn; đoạn trích highlight đúng cụm', async () => {
@@ -235,8 +228,11 @@ describe('runPipeline — Trong nước', () => {
     expect(reasons).toEqual({
       'https://tuoitre.vn/ong-tran-van-anh-2012010110101012.htm': 'no_match',
       'https://www.nytimes.com/2010/01/01/world/asia/engineer.html': 'region',
-      'https://www.facebook.com/tranvana/posts/1': 'no_match', // mạng xã hội: tiêu đề + đoạn trích Google không có tên
-      'https://www.facebook.com/abcnews/posts/3': 'no_match', // tên không dấu chỉ khớp khi tìm Ngoài nước
+      // Đang chọn chỉ tìm Báo: bài đăng mạng xã hội Google trả lẫn vào bị loại
+      'https://www.facebook.com/tranvana/posts/1': 'non_article',
+      'https://www.facebook.com/abcnews/posts/3': 'non_article',
+      'https://www.facebook.com/baoxyz/posts/2': 'non_article',
+      'https://www.youtube.com/watch?v=abc': 'non_article',
       'https://www.tintuc-viet.com/': 'non_article', // trang chủ
       'https://tintuc-viet.com/2010/01/02/tran-van-a.html': 'region',
       'https://thanhnien.vn/loi-404.htm': 'fetch_error',
@@ -260,10 +256,10 @@ describe('runPipeline — Trong nước', () => {
     expect(final).toMatchObject({
       phase: 'done',
       candidates: 22,
-      toVerify: 19,
-      verified: 19,
-      accepted: 8,
-      rejected: 13,
+      toVerify: 15,
+      verified: 15,
+      accepted: 6,
+      rejected: 15,
       duplicates: 2,
       searchCalls: 3,
       sourcesDone: 1,
@@ -285,7 +281,7 @@ describe('runPipeline — Trong nước', () => {
       '2010-01-01..2015-12-31/3',
       '2010-01-01..2015-12-31/3', // lỗi tạm thời → thử lại 1 lần
     ]);
-    expect(calls[0]).toMatchObject({ query: '"Trần Văn A"', locale: { country: 'vn', language: 'vi' } });
+    expect(calls[0]).toMatchObject({ query: `"Trần Văn A"${NO_SOCIAL}`, locale: { country: 'vn', language: 'vi' } });
   });
 
   it('báo cáo nguồn: yêu cầu, tìm được, hợp lệ / bị loại / trùng, lỗi giữa chừng', async () => {
@@ -297,12 +293,12 @@ describe('runPipeline — Trong nước', () => {
         engine: 'google',
         vertical: 'web',
         tier: 1,
-        query: '"Trần Văn A"',
+        query: `"Trần Văn A"${NO_SOCIAL}`,
         requested: 40,
         returned: 23,
         exhausted: false,
-        accepted: 8,
-        rejected: 13,
+        accepted: 6,
+        rejected: 15,
         duplicates: 2,
         status: 'failed',
         error: 'SerpApi: Internal error',
@@ -330,17 +326,20 @@ describe('runPipeline — Ngoài nước', () => {
     // Ngoài nước không dùng mục Tin tức; từ khoá không có từ phụ nên không có truy vấn bổ sung
     expect(foreign.final.sources.map((r) => r.id)).toEqual(['en:google']);
     expect(foreign.results.map((r) => [r.url, r.matchedVariant, r.region, r.date?.date])).toEqual([
-      ['https://www.facebook.com/abcnews/posts/3', 'Tran Van A', 'foreign', undefined],
       ['https://www.nytimes.com/2010/01/01/world/asia/engineer.html', 'A Tran Van', 'foreign', '2010-01-01'],
     ]);
-    // Bài đăng tiếng Anh trên Facebook: Ngoài nước, vào tab "Chưa xác minh" (chỉ có đoạn trích Google)
-    expect(byUrl(foreign.results)['https://www.facebook.com/abcnews/posts/3']).toMatchObject({
+    // Tìm cả mạng xã hội: bài đăng tiếng Anh trên Facebook là Ngoài nước, vào tab "Chưa xác minh" (chỉ có đoạn trích Google)
+    const both = await run(
+      { region: 'foreign', languages: ['en'], sourceTypes: 'both' },
+      makeDeps(makeProvider(3).provider, { translator: english }),
+    );
+    expect(byUrl(both.results)['https://www.facebook.com/abcnews/posts/3']).toMatchObject({
       verification: 'unverified',
       publisher: { kind: 'social', verified: false },
     });
     // Chế độ chặt: không xác định được tài khoản đăng ở nước nào → loại
     const strict = await run(
-      { region: 'foreign', languages: ['en'], sourcePolicy: 'verified' },
+      { region: 'foreign', languages: ['en'], sourcePolicy: 'verified', sourceTypes: 'both' },
       makeDeps(makeProvider(3).provider, { translator: english }),
     );
     expect(byUrl(strict.rejected)['https://www.facebook.com/abcnews/posts/3']).toMatchObject({ reason: 'source_unverified' });
@@ -353,7 +352,7 @@ describe('runPipeline — Ngoài nước', () => {
       },
     };
     const vnaRun = await run(
-      { region: 'foreign', languages: ['en'] },
+      { region: 'foreign', languages: ['en'], sourceTypes: 'social' },
       makeDeps(vnaProvider, { translator: english }),
     );
     expect(byUrl(vnaRun.rejected)[vna.url]).toMatchObject({ reason: 'republished', detail: expect.stringContaining('VNAEnglish') });
@@ -363,7 +362,9 @@ describe('runPipeline — Ngoài nước', () => {
       reason: 'region',
       detail: expect.stringContaining('Bài viết bằng tiếng Việt'),
     });
-    expect(byUrl(foreign.rejected)['https://www.facebook.com/baoxyz/posts/2']).toMatchObject({
+    // Đang chọn chỉ tìm Báo: bài đăng mạng xã hội bị loại; khi tìm cả mạng xã hội, bài tiếng Việt là Trong nước
+    expect(byUrl(foreign.rejected)['https://www.facebook.com/baoxyz/posts/2']).toMatchObject({ reason: 'non_article' });
+    expect(byUrl(both.rejected)['https://www.facebook.com/baoxyz/posts/2']).toMatchObject({
       reason: 'region',
       detail: 'Bài đăng Facebook viết bằng tiếng Việt (Trong nước)',
     });
@@ -682,7 +683,7 @@ describe('runPipeline — từ khoá bắt buộc, từ phụ và tìm liên qua
 
   it('không đánh dấu: tìm liên quan — nhận bài có ít nhất 60% số từ, không cần đúng thứ tự', async () => {
     const { calls, results, rejected } = await runVisit('Chuyến thăm ABC của thủ tướng');
-    expect(calls[0].query).toBe('Chuyến thăm ABC của thủ tướng');
+    expect(calls[0].query).toBe(`Chuyến thăm ABC của thủ tướng${NO_SOCIAL}`);
     expect(Object.keys(results)).toEqual(expect.arrayContaining([VISIT, TRIP]));
     expect(results[VISIT]).toMatchObject({
       loose: true,
@@ -694,7 +695,7 @@ describe('runPipeline — từ khoá bắt buộc, từ phụ và tìm liên qua
 
   it('bôi đen "ABC": bắt buộc có ABC (ở tiêu đề hay nội dung), từ còn lại chỉ để báo mức liên quan', async () => {
     const { calls, results, rejected } = await runVisit('Chuyến thăm `ABC` của thủ tướng');
-    expect(calls[0].query).toBe('"ABC" Chuyến thăm của thủ tướng');
+    expect(calls[0].query).toBe(`"ABC" Chuyến thăm của thủ tướng${NO_SOCIAL}`);
     expect(results[VISIT]).toMatchObject({
       loose: false,
       matchedVariant: 'ABC',
@@ -754,12 +755,12 @@ describe('runPipeline — từ khoá bắt buộc, từ phụ và tìm liên qua
       terms: [{ text: 'ABC', variants: ['ABC'] }],
       optional: ["Prime Minister's visit"],
     });
-    expect(calls[1]).toMatchObject({ query: '"ABC" Prime Minister\'s visit', locale: { country: 'vn', language: 'en' } });
+    expect(calls[1]).toMatchObject({ query: `"ABC" Prime Minister's visit${NO_SOCIAL}`, locale: { country: 'vn', language: 'en' } });
   });
 
   it('tên không đánh dấu cũng chỉ là tìm liên quan: có thể khớp cả “Trần Văn Anh”', async () => {
     const { calls, results } = await run({ query: 'Trần Văn A' });
-    expect(calls[0].query).toBe('Trần Văn A');
+    expect(calls[0].query).toBe(`Trần Văn A${NO_SOCIAL}`);
     expect(results.map((r) => r.url)).toContain('https://tuoitre.vn/ong-tran-van-anh-2012010110101012.htm');
   });
 });
@@ -983,9 +984,9 @@ describe('runPipeline — truy vấn bổ sung Trong nước', () => {
       (e) => events.push(e),
     );
     expect(calls.map((c) => [c.vertical ?? 'web', c.query])).toEqual([
-      ['web', '"Trần Văn A" thăm cầu'],
+      ['web', `"Trần Văn A" thăm cầu${NO_SOCIAL}`],
       ['news', '"Trần Văn A" thăm cầu'],
-      ['web', '"Trần Văn A"'],
+      ['web', `"Trần Văn A"${NO_SOCIAL}`],
     ]);
     const results = events.flatMap((e) => (e.type === 'result' ? [e.item] : []));
     expect(results).toHaveLength(1);
@@ -1090,7 +1091,7 @@ describe('runPipeline — cách gọi khác chọn từ gợi ý', () => {
   it('gộp bằng OR vào truy vấn chính; bài chỉ có chức danh được nhận, ghi rõ “khớp theo gợi ý”; chức danh nước khác thì không', async () => {
     const { calls, results, rejected } = await runExpand([NAME, ROLE, OTHER, BOTH].map((u) => item(u, '1 ngày trước')));
     expect(results[BOTH].conditions[0]).toMatchObject({ status: 'matched_exact', variant: 'Tô Lâm' });
-    expect(calls[0].query).toBe('("Tô Lâm" OR "Chủ tịch nước Việt Nam") "Bỉ"');
+    expect(calls[0].query).toBe(`("Tô Lâm" OR "Chủ tịch nước Việt Nam") "Bỉ"${NO_SOCIAL}`);
     expect(results[NAME].conditions[0]).toMatchObject({ term: 'Tô Lâm', status: 'matched_exact' });
     expect(results[ROLE].conditions[0]).toMatchObject({ term: 'Tô Lâm', status: 'matched_expansion', variant: 'Chủ tịch nước Việt Nam' });
     expect(rejected[OTHER]).toMatchObject({ reason: 'no_match' });
@@ -1100,8 +1101,94 @@ describe('runPipeline — cách gọi khác chọn từ gợi ý', () => {
     const full = [NAME, ...Array.from({ length: 9 }, (_, i) => `https://vnexpress.net/tong-bi-thu-to-lam-den-bi-${i}.html`)];
     for (const url of full.slice(1)) pages.set(url, parsePage(html({ lead: 'Tổng Bí thư Tô Lâm đến Bỉ.' }), url, NOW));
     const { calls, results } = await runExpand(full.map((u) => item(u, '1 ngày trước')));
-    expect(calls.map((c) => c.query)).toEqual(['("Tô Lâm" OR "Chủ tịch nước Việt Nam") "Bỉ"', '"Chủ tịch nước Việt Nam" "Bỉ"']);
+    expect(calls.map((c) => c.query)).toEqual([
+      `("Tô Lâm" OR "Chủ tịch nước Việt Nam") "Bỉ"${NO_SOCIAL}`,
+      `"Chủ tịch nước Việt Nam" "Bỉ"${NO_SOCIAL}`,
+    ]);
     expect(results[ROLE]).toMatchObject({ foundBy: ['Tiếng Việt · Google (truy vấn bổ sung)'] });
+  });
+});
+
+describe('runPipeline — loại nguồn: Báo / Mạng xã hội / Cả hai', () => {
+  const NEWS = 'https://vnexpress.net/ong-tran-van-a-nhan-giai-3923456.html';
+  const FB = 'https://www.facebook.com/baoxyz/posts/2';
+  const YT = 'https://www.youtube.com/watch?v=abc';
+
+  async function runSources(sourceTypes: 'news' | 'social' | 'both') {
+    const calls: SearchRequest[] = [];
+    const provider: SearchProvider = {
+      id: 'stub-sources',
+      async search(request) {
+        calls.push(request);
+        // Google vẫn có thể trả lẫn loại kia dù đã dùng site: / -site:
+        const items = / site:/.test(` ${request.query.replace(/-site:\S+/g, '')}`)
+          ? [item(FB, '3 thg 3, 2012', 'Báo XYZ', 'Kỹ sư Trần Văn A được tặng bằng khen.'), item(YT, null, 'Trần Văn A: hành trình xây cầu'), item(NEWS)]
+          : request.vertical === 'news'
+            ? []
+            : [item(NEWS), item(FB, '3 thg 3, 2012', 'Báo XYZ', 'Kỹ sư Trần Văn A được tặng bằng khen.')];
+        return { items, hasMore: false, searchedAt: SEARCHED_AT };
+      },
+    };
+    const { results, rejected, final } = await run({ sourceTypes, pagesPerSource: 1 }, makeDeps(provider));
+    return { calls, results: byUrl(results), rejected: byUrl(rejected), final };
+  }
+
+  it('Báo: truy vấn loại mạng xã hội; bài mạng xã hội lọt vào bị loại, ghi rõ lý do', async () => {
+    const { calls, results, rejected } = await runSources('news');
+    expect(calls[0].query).toBe(`"Trần Văn A"${NO_SOCIAL}`);
+    expect(calls.some((c) => c.query.includes('(site:'))).toBe(false);
+    expect(Object.keys(results)).toEqual([NEWS]);
+    expect(rejected[FB]).toMatchObject({ reason: 'non_article', detail: 'Bài đăng mạng xã hội — đang chọn chỉ tìm Báo' });
+  });
+
+  it('Mạng xã hội (mặc định Facebook): một truy vấn site:facebook.com, chỉ trả bài đăng mạng xã hội; không có truy vấn bổ sung tìm báo', async () => {
+    const { calls, results, rejected, final } = await runSources('social');
+    expect(calls.map((c) => c.query)).toEqual(['"Trần Văn A" site:facebook.com']);
+    expect(Object.keys(results).sort()).toEqual([FB, YT]);
+    expect(results[FB]).toMatchObject({ verification: 'unverified', sourceName: 'Facebook · Mạng xã hội', foundBy: ['Tiếng Việt · Facebook (qua Google)'] });
+    expect(rejected[NEWS]).toMatchObject({ reason: 'non_article', detail: 'Không phải bài đăng mạng xã hội — đang chọn chỉ tìm Mạng xã hội' });
+    expect(final.sources.map((r) => [r.id, r.vertical, r.platform])).toEqual([['vi:google:facebook', 'social', 'Facebook']]);
+  });
+
+  it('chọn nhiều nền tảng: mỗi nền tảng một truy vấn riêng (gộp thì Google ưu tiên Facebook, bỏ sót nền tảng khác)', async () => {
+    const calls: SearchRequest[] = [];
+    const provider: SearchProvider = {
+      id: 'stub-platforms',
+      async search(request) {
+        calls.push(request);
+        return { items: [], hasMore: false, searchedAt: SEARCHED_AT };
+      },
+    };
+    const { final } = await run({ sourceTypes: 'social', socialPlatforms: ['facebook', 'threads', 'x'], pagesPerSource: 1 }, makeDeps(provider));
+    expect(calls.map((c) => c.query)).toEqual([
+      '"Trần Văn A" site:facebook.com',
+      '"Trần Văn A" (site:threads.com OR site:threads.net)',
+      '"Trần Văn A" (site:x.com OR site:twitter.com)',
+    ]);
+    expect(final.sources.map((r) => r.platform)).toEqual(['Facebook', 'Threads', 'X (Twitter)']);
+  });
+
+  it('Mạng xã hội: có từ khoá chính thì bỏ từ phụ khỏi truy vấn (bài đăng ngắn hay thiếu từ phụ)', async () => {
+    const calls: SearchRequest[] = [];
+    const provider: SearchProvider = {
+      id: 'stub-social-optional',
+      async search(request) {
+        calls.push(request);
+        return { items: [], hasMore: false, searchedAt: SEARCHED_AT };
+      },
+    };
+    await run({ query: '`Trần Văn A` đi `Bỉ`', sourceTypes: 'social', pagesPerSource: 1 }, makeDeps(provider));
+    expect(calls.map((c) => c.query)).toEqual(['"Trần Văn A" "Bỉ" site:facebook.com']);
+  });
+
+  it('Cả hai: một truy vấn báo + một truy vấn mạng xã hội, mỗi loại có chỗ riêng', async () => {
+    const { calls, results } = await runSources('both');
+    const main = calls.filter((c) => c.vertical !== 'news');
+    expect(main.map((c) => c.query)).toEqual([
+      `"Trần Văn A"${NO_SOCIAL}`,
+      '"Trần Văn A" site:facebook.com',
+    ]);
+    expect(Object.keys(results).sort()).toEqual([NEWS, FB, YT].sort());
   });
 });
 
@@ -1170,7 +1257,7 @@ describe('runPipeline — khoảng ngày lẻ', () => {
 
   it('tìm đúng khoảng ngày đã chọn; bài có ngày đăng ngoài khoảng bị loại', async () => {
     const { calls, results, rejected } = await run({ fromDate: '2010-03-01', toDate: '2012-06-30', pagesPerSource: 2 });
-    expect(calls.map((c) => `${c.dateRange!.start}..${c.dateRange!.end}`)).toEqual([
+    expect(calls.filter((c) => c.vertical !== 'news').map((c) => `${c.dateRange!.start}..${c.dateRange!.end}`)).toEqual([
       '2010-03-01..2012-06-30',
       '2010-03-01..2012-06-30',
     ]);

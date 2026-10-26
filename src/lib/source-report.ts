@@ -6,8 +6,15 @@ import type { SearchVertical, SourceReport } from './types';
 export type NoteTone = 'ok' | 'warn' | 'bad' | 'muted';
 
 /** "Tiếng Nga · Yandex", "Tiếng Anh · Google News", "Tiếng Anh · Google (truy vấn bổ sung)" */
-export function sourceLabel(language: string, engine: SearchEngine, vertical: SearchVertical = 'web', tier: 1 | 2 = 1): string {
+export function sourceLabel(
+  language: string,
+  engine: SearchEngine,
+  vertical: SearchVertical = 'web',
+  tier: 1 | 2 = 1,
+  platform?: string,
+): string {
   if (vertical === 'news') return `${languageLabel(language)} · Google News`;
+  if (vertical === 'social') return `${languageLabel(language)} · ${platform ?? 'mạng xã hội'} (qua Google)`;
   return `${languageLabel(language)} · ${engineLabel(engine)}${tier === 2 ? ' (truy vấn bổ sung)' : ''}`;
 }
 

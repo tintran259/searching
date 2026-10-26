@@ -2,6 +2,7 @@
  * Sinh truy vấn tìm kiếm, biến thể tên và nhóm truy vấn theo ngôn ngữ.
  */
 import { SEARCH_LANGUAGES, type LocalEngine } from '@/config/languages';
+import { SOCIAL_SEARCH_SITES } from '@/config/sources';
 import { normalizeText } from './matcher';
 import { canonicalQuery, parseQuery, termAlternatives } from './query-syntax';
 import { domesticDomainsOutsideVn } from './region';
@@ -121,6 +122,14 @@ export interface SearchQueryOptions {
   exclude?: string[];
   /** Mục Tin tức của Google không dùng được site: → không thêm -site: */
   vertical?: 'web' | 'news';
+  /**
+   * news: chỉ báo → thêm -site: các nền tảng mạng xã hội để chúng không chiếm chỗ của báo;
+   * social: chỉ mạng xã hội → site:facebook.com (hoặc (site:a OR site:b) với `sites`), không thêm -site: báo Việt Nam.
+   * Bỏ trống: không thêm gì (như trước).
+   */
+  target?: 'news' | 'social';
+  /** target social: các tên miền của nền tảng cần tìm (mặc định mọi nền tảng trong SOCIAL_SEARCH_SITES) */
+  sites?: readonly string[];
 }
 
 /**
@@ -132,7 +141,7 @@ export function buildSearchQuery(
   terms: QueryTerm[],
   optional: string[],
   region: Region,
-  { exclude = [], vertical = 'web' }: SearchQueryOptions = {},
+  { exclude = [], vertical = 'web', target, sites: socialSites = SOCIAL_SEARCH_SITES }: SearchQueryOptions = {},
 ): string {
   const single = terms.length === 1 && optional.length === 0;
   let query = terms
@@ -154,8 +163,22 @@ export function buildSearchQuery(
     query += ` -${quote(phrase)}`;
     words += n;
   }
-  if (region === 'foreign' && vertical === 'web') {
+  if (vertical !== 'web') return query.trim();
+  if (target === 'social') {
+    // (site:a OR site:b …): n trang = 2n − 1 từ; bớt nền tảng cuối danh sách nếu chạm giới hạn
+    const room = Math.floor((MAX_QUERY_WORDS - words + 1) / 2);
+    const sites = socialSites.slice(0, Math.max(1, room)).map((d) => `site:${d}`);
+    return `${query} ${sites.length > 1 ? `(${sites.join(' OR ')})` : sites[0]}`.trim();
+  }
+  if (region === 'foreign') {
     for (const domain of ['vn', ...domesticDomainsOutsideVn()]) {
+      if (words + 1 > MAX_QUERY_WORDS) break;
+      query += ` -site:${domain}`;
+      words += 1;
+    }
+  }
+  if (target === 'news') {
+    for (const domain of SOCIAL_SEARCH_SITES) {
       if (words + 1 > MAX_QUERY_WORDS) break;
       query += ` -site:${domain}`;
       words += 1;
@@ -216,7 +239,7 @@ export function buildExpansionQuery(
 export function buildQueryPlan(
   input: string,
   region: Region,
-  options: { exclude?: string[]; expansions?: TermExpansion[] } = {},
+  options: { exclude?: string[]; expansions?: TermExpansion[]; target?: SearchQueryOptions['target'] } = {},
 ): QueryPlan {
   const parsed = parseQuery(input);
   if (!parsed.required.length && !parsed.optional.length) throw new Error('Từ khoá đang trống');
@@ -238,7 +261,7 @@ export function buildQueryPlan(
         language: SOURCE_LANGUAGE,
         terms,
         optional: parsed.optional,
-        searchQuery: buildMainQuery(terms, parsed.optional, region, { exclude: options.exclude }),
+        searchQuery: buildMainQuery(terms, parsed.optional, region, { exclude: options.exclude, target: options.target }),
       },
     ],
   };
@@ -266,7 +289,7 @@ export function withTranslations(
   plan: QueryPlan,
   translations: TranslatedQuery[],
   region: Region,
-  options: { exclude?: string[] } = {},
+  options: { exclude?: string[]; target?: SearchQueryOptions['target'] } = {},
 ): QueryPlan {
   const groups: QueryGroup[] = [...plan.groups];
   for (const t of translations) {

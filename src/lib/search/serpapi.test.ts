@@ -39,6 +39,12 @@ describe('SerpApiProvider', () => {
     });
   });
 
+  it('trang đầu không gửi start (start=0 làm Google bỏ qua site: và cụm trong ngoặc kép)', async () => {
+    const { calls, fetchImpl } = stubFetch({ organic_results: [] });
+    await new SerpApiProvider('KEY', fetchImpl).search({ ...REQUEST, page: 0 });
+    expect(new URL(calls[0]).searchParams.has('start')).toBe(false);
+  });
+
   it('tên miền Google theo quốc gia; chỉ lọc ngôn ngữ (lr) với ngôn ngữ Google hỗ trợ', async () => {
     const urlFor = async (locale: { country: string; language: string; onlyLanguage?: string }) => {
       const { calls, fetchImpl } = stubFetch({ organic_results: [] });
@@ -166,6 +172,32 @@ describe('SerpApiProvider', () => {
       },
     ]);
     expect(res.hasMore).toBe(true);
+  });
+
+  it('link "/goto?url=…" (Google ẩn URL thật): lấy URL thật từ link chuyển hướng; không lấy được thì bỏ kết quả', async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.startsWith('https://serpapi.com/')) {
+        return Response.json({
+          organic_results: [
+            { position: 1, title: 'VNA', link: '/goto?url=CAES1', redirect_link: 'https://www.google.com/url?sa=t&url=CAES1' },
+            { position: 2, title: 'Instagram', link: 'https://www.instagram.com/p/DewGQ9Kktw3/' },
+            { position: 3, title: 'Không lấy được', link: '/goto?url=CAES3', redirect_link: 'https://www.google.com/url?sa=t&url=CAES3' },
+            { position: 4, title: 'Không có link chuyển hướng', link: '/goto?url=CAES4' },
+          ],
+        });
+      }
+      // Trang chuyển hướng của Google: URL đích nằm trong nội dung, không có header Location
+      if (url.endsWith('CAES1')) {
+        return new Response('<meta content="0;url=x"><a href="https://www.facebook.com/VNAEnglish/posts/123?a=1&amp;b=2">', { status: 200 });
+      }
+      return new Response('<html>Google</html>', { status: 200 });
+    }) as typeof fetch;
+    const res = await new SerpApiProvider('KEY', fetchImpl).search(REQUEST);
+    expect(res.items.map((i) => [i.url, i.title])).toEqual([
+      ['https://www.facebook.com/VNAEnglish/posts/123?a=1&b=2', 'VNA'],
+      ['https://www.instagram.com/p/DewGQ9Kktw3/', 'Instagram'],
+    ]);
   });
 
   it('không có trang tiếp theo thì hasMore = false', async () => {

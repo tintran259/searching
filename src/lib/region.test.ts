@@ -59,6 +59,9 @@ describe('sourceNameOf / hostnameOf / socialPlatformOf / isHomePage', () => {
     expect(socialPlatformOf('https://m.facebook.com/story.php?id=1')).toBe('Facebook');
     expect(socialPlatformOf('https://youtu.be/abc')).toBe('YouTube');
     expect(socialPlatformOf('https://x.com/abc/status/1')).toBe('X (Twitter)');
+    // Threads đã chuyển sang threads.com
+    expect(socialPlatformOf('https://www.threads.com/@belgaimage/post/De2JAO9FMcr')).toBe('Threads');
+    expect(socialPlatformOf('https://www.threads.net/@abc/post/1')).toBe('Threads');
     expect(socialPlatformOf('https://box.com/abc')).toBeNull();
     expect(socialPlatformOf('https://vnexpress.net/abc')).toBeNull();
   });

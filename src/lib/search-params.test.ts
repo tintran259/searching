@@ -23,6 +23,8 @@ describe('parseSearchParams', () => {
         allowDomains: [],
         denyDomains: [],
         expansions: [],
+        sourceTypes: 'news',
+        socialPlatforms: ['facebook'],
       },
     });
   });
@@ -47,6 +49,8 @@ describe('parseSearchParams', () => {
         allowDomains: [],
         denyDomains: [],
         expansions: [],
+        sourceTypes: 'news',
+        socialPlatforms: ['facebook'],
       },
     });
     if (parsed.ok) expect(parse(toQueryString(parsed.params))).toEqual(parsed);
@@ -67,12 +71,15 @@ describe('parseSearchParams', () => {
 
   it('ngân sách lượt tìm, cụm loại trừ, chính sách nguồn và danh sách domain', () => {
     const parsed = parse(
-      `q=a&budget=30&exclude=${encodeURIComponent('bóng đá, xổ số')}&policy=verified&republished=0&allow=${encodeURIComponent('https://www.MirageNews.com/x, b.org')}&deny=c.net`,
+      `q=a&budget=30&exclude=${encodeURIComponent('bóng đá, xổ số')}&policy=verified&sources=both&platforms=threads,facebook&republished=0&allow=${encodeURIComponent('https://www.MirageNews.com/x, b.org')}&deny=c.net`,
     );
     expect(parsed.ok && parsed.params).toMatchObject({
       budget: 30,
       exclude: ['bóng đá', 'xổ số'],
       sourcePolicy: 'verified',
+      sourceTypes: 'both',
+      // Theo thứ tự cấu hình, không theo thứ tự nhập
+      socialPlatforms: ['facebook', 'threads'],
       excludeRepublished: false,
       allowDomains: ['miragenews.com', 'b.org'],
       denyDomains: ['c.net'],
@@ -107,6 +114,9 @@ describe('parseSearchParams', () => {
     ['q=a&budget=0', 'Số lượt tìm tối đa'],
     ['q=a&budget=101', 'Số lượt tìm tối đa'],
     ['q=a&policy=any', 'Chính sách nguồn'],
+    ['q=a&sources=blog', 'Loại nguồn'],
+    ['q=a&sources=social&platforms=myspace', 'Nền tảng chưa hỗ trợ: myspace'],
+    ['q=a&sources=social&platforms=', 'ít nhất một nền tảng'],
     ['q=a&langs=en,xx', 'Ngôn ngữ chưa hỗ trợ: xx'],
     ['q=a&region=foreign', 'chọn ít nhất một ngôn ngữ'],
     [`q=${'a'.repeat(121)}`, 'tối đa'],

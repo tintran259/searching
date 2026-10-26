@@ -39,7 +39,10 @@ const GOOGLE_LR: Record<string, string> = {
 interface SerpApiOrganicResult {
   position?: number;
   title?: string;
+  /** Thường là URL thật; với một số kết quả (hay gặp ở bài mạng xã hội) chỉ là "/goto?url=…" của Google */
   link?: string;
+  /** Link chuyển hướng của Google (google.com/url?…) — dùng để tìm URL thật khi `link` không phải URL */
+  redirect_link?: string;
   snippet?: string;
   date?: string;
 }
@@ -76,6 +79,10 @@ const compactDate = (isoDate: string) => isoDate.replaceAll('-', '');
 
 /** Link chuyển hướng của Baidu (baidu.com/link?url=…) — đổi ra URL thật để kiểm tra robots.txt và gộp trùng đúng trang */
 const BAIDU_REDIRECT = /^https?:\/\/(?:www\.)?baidu\.com\/link\?/;
+
+const isAbsoluteUrl = (s: string) => /^https?:\/\//i.test(s);
+/** URL đích trong trang chuyển hướng của Google (không có header Location) */
+const GOOGLE_REDIRECT_TARGET = /(?:URL=|href=")(https?:\/\/[^"'>\s]+)/i;
 
 /** "2019-01-01" → "1/1/2019" (định dạng cd_min/cd_max của Google) */
 export function toGoogleDate(isoDate: string): string {
@@ -128,7 +135,9 @@ export class SerpApiProvider implements SearchProvider {
       default: {
         params.set('q', request.query);
         if (request.vertical === 'news') params.set('tbm', 'nws');
-        params.set('start', String(request.page * PAGE_SIZE));
+        // Chỉ gửi start từ trang 2: thử thực tế, start=0 làm Google nới lỏng truy vấn, bỏ qua site: và cụm trong
+        // ngoặc kép (trả cả trang không liên quan), trong khi không gửi start thì Google làm đúng truy vấn
+        if (request.page > 0) params.set('start', String(request.page * PAGE_SIZE));
         params.set('nfpr', '1'); // không để Google tự sửa chính tả từ khoá
         const { country, language } = request.locale ?? {};
         if (country) {
@@ -157,6 +166,30 @@ export class SerpApiProvider implements SearchProvider {
       return m ? m[1] : url;
     } catch {
       return url;
+    }
+  }
+
+  /**
+   * Kết quả chỉ có link "/goto?url=…" (Google ẩn URL thật, hay gặp ở bài Facebook / Instagram / Threads):
+   * mở link chuyển hướng của Google để lấy URL thật. Không lấy được → null (không biết bài nằm ở đâu thì bỏ).
+   */
+  private async resolveGoogleLink(r: SerpApiOrganicResult & { link: string }, signal: AbortSignal): Promise<string | null> {
+    if (isAbsoluteUrl(r.link)) return r.link;
+    if (!r.redirect_link || !isAbsoluteUrl(r.redirect_link)) return null;
+    try {
+      const res = await this.fetchImpl(r.redirect_link, {
+        redirect: 'manual',
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.any([signal, AbortSignal.timeout(8_000)]),
+      });
+      const location = res.headers.get('location');
+      const target = location ? new URL(location, r.redirect_link).toString() : GOOGLE_REDIRECT_TARGET.exec(await res.text())?.[1];
+      if (!target) return null;
+      const url = target.replace(/&amp;/g, '&');
+      // Vẫn là trang của Google (vd trang cảnh báo) thì coi như không lấy được
+      return isAbsoluteUrl(url) && !/^https?:\/\/(?:www\.)?google\.[a-z.]+\//i.test(url) ? url : null;
+    } catch {
+      return null;
     }
   }
 
@@ -201,17 +234,22 @@ export class SerpApiProvider implements SearchProvider {
       raw = data.organic_results ?? [];
     }
     const withLinks = raw.filter((r): r is Raw & { link: string } => typeof r.link === 'string');
-    const items: SearchResultItem[] = await Promise.all(
-      withLinks.map(async (r, i) => ({
-        url: request.engine === 'baidu' ? await this.resolveBaiduLink(r.link, signal) : r.link,
-        title: r.title ?? '',
-        snippet: r.snippet ?? '',
-        dateText: r.date ?? leadingDate(r.snippet),
-        position: r.position ?? request.page * PAGE_SIZE + i + 1,
-        ...(r.sourceName ? { sourceName: r.sourceName } : {}),
-        ...(r.publishedAt ? { publishedAt: r.publishedAt } : {}),
-      })),
+    const resolved = await Promise.all(
+      withLinks.map(async (r, i): Promise<SearchResultItem | null> => {
+        const url = request.engine === 'baidu' ? await this.resolveBaiduLink(r.link, signal) : await this.resolveGoogleLink(r, signal);
+        if (!url) return null;
+        return {
+          url,
+          title: r.title ?? '',
+          snippet: r.snippet ?? '',
+          dateText: r.date ?? leadingDate(r.snippet),
+          position: r.position ?? request.page * PAGE_SIZE + i + 1,
+          ...(r.sourceName ? { sourceName: r.sourceName } : {}),
+          ...(r.publishedAt ? { publishedAt: r.publishedAt } : {}),
+        };
+      }),
     );
+    const items = resolved.filter((item): item is SearchResultItem => item !== null);
     return {
       items,
       hasMore: Boolean(data.serpapi_pagination?.next) && items.length > 0,

@@ -15,6 +15,7 @@
  */
 import pLimit from 'p-limit';
 import { SEARCH_LANGUAGES } from '@/config/languages';
+import { DEFAULT_SOCIAL_PLATFORMS, SOCIAL_SEARCH_PLATFORMS } from '@/config/sources';
 import { parseDate, parseSnippetDate } from './date-extractor';
 import { FetchError } from './fetcher';
 import { DATE_SOURCE_INFO, formatDate } from './labels';
@@ -25,6 +26,7 @@ import { domainListed, profilePublisher } from './publisher';
 import {
   buildLocalQuery,
   buildExpansionQuery,
+  buildMainQuery,
   buildQueryPlan,
   buildSearchQuery,
   cleanPhrase,
@@ -377,7 +379,16 @@ export async function runPipeline(
 
   // A/B. Kế hoạch truy vấn, kèm bản dịch nếu có chọn ngôn ngữ
   const expansions = params.expansions ?? [];
-  let plan = buildQueryPlan(params.query, params.region, { exclude, expansions });
+  // Loại nguồn: chỉ báo (mặc định), chỉ mạng xã hội, hay cả hai — mỗi loại một truy vấn riêng để không chiếm chỗ nhau
+  const sourceTypes = params.sourceTypes ?? 'news';
+  const wantNews = sourceTypes !== 'social';
+  const wantSocial = sourceTypes !== 'news';
+  // Mỗi nền tảng một truy vấn riêng: gộp nhiều nền tảng thì Google ưu tiên Facebook, bỏ sót nền tảng khác
+  const socialPlatforms = SOCIAL_SEARCH_PLATFORMS.filter((p) =>
+    (params.socialPlatforms ?? DEFAULT_SOCIAL_PLATFORMS).includes(p.id),
+  );
+  // Truy vấn chính của mỗi nhóm là truy vấn tìm báo (-site: các nền tảng mạng xã hội)
+  let plan = buildQueryPlan(params.query, params.region, { exclude, expansions, target: 'news' });
   if (languages.length) {
     report();
     const translateStart = Date.now();
@@ -458,7 +469,7 @@ export async function runPipeline(
         altOptional: optionalVariants.slice(1),
       };
     });
-    const translated = withTranslations(base, translations, params.region, { exclude });
+    const translated = withTranslations(base, translations, params.region, { exclude, target: 'news' });
     const missing = languages.filter((l) => !translated.groups.some((g) => g.language === l.code));
     // Chỉ báo các ngôn ngữ thiếu do model không dịch (lỗi gọi API đã báo ở trên)
     if (missing.length && failures.length === 0) {
@@ -682,7 +693,10 @@ export async function runPipeline(
     accepted.add(c.key).add(key);
     progress.accepted++;
     c.source.accepted++;
-    acceptedByLanguage.set(c.source.language, (acceptedByLanguage.get(c.source.language) ?? 0) + 1);
+    // Đếm bài báo để biết ngôn ngữ nào còn thiếu (bài mạng xã hội không làm ngôn ngữ đó "đủ bài báo")
+    if (a.publisher.kind === 'news') {
+      acceptedByLanguage.set(c.source.language, (acceptedByLanguage.get(c.source.language) ?? 0) + 1);
+    }
     if (a.verification === 'unverified') metrics.unverified++;
     if (a.publisher.verified) metrics.sourceVerified++;
 
@@ -839,7 +853,7 @@ export async function runPipeline(
         }
         source.status = 'failed';
         source.error = errorMessage(err);
-        emit({ type: 'warning', message: `${sourceLabel(group.language, engine, vertical, source.tier)}, trang ${page + 1}: ${source.error}` });
+        emit({ type: 'warning', message: `${sourceLabel(group.language, engine, vertical, source.tier, source.platform)}, trang ${page + 1}: ${source.error}` });
         return null;
       }
     }
@@ -847,7 +861,7 @@ export async function runPipeline(
 
   function collect(response: SearchResponse, source: SourceReport) {
     source.returned += response.items.length;
-    const label = sourceLabel(source.language, source.engine, source.vertical, source.tier);
+    const label = sourceLabel(source.language, source.engine, source.vertical, source.tier, source.platform);
     let fresh = 0;
     for (const item of response.items) {
       const key = normalizeUrl(item.url);
@@ -869,7 +883,17 @@ export async function runPipeline(
         reject(candidate, 'denied_domain', 'Domain nằm trong danh sách bị loại');
         continue;
       }
-      if (socialPlatformOf(item.url)) {
+      // Chỉ trả đúng loại nguồn đã chọn (Google vẫn có thể trả lẫn loại kia dù đã dùng site: / -site:)
+      const social = Boolean(socialPlatformOf(item.url));
+      if (social && !wantSocial) {
+        reject(candidate, 'non_article', 'Bài đăng mạng xã hội — đang chọn chỉ tìm Báo');
+        continue;
+      }
+      if (!social && !wantNews) {
+        reject(candidate, 'non_article', 'Không phải bài đăng mạng xã hội — đang chọn chỉ tìm Mạng xã hội');
+        continue;
+      }
+      if (social) {
         progress.toVerify++;
         progress.verified++;
         checkSnippet(candidate, 'social');
@@ -901,13 +925,20 @@ export async function runPipeline(
     language: string,
     engine: SearchEngine,
     query: string,
-    { vertical = 'web', tier = 1, suffix = '', pages = params.pagesPerSource }: { vertical?: SearchVertical; tier?: 1 | 2; suffix?: string; pages?: number } = {},
+    {
+      vertical = 'web',
+      tier = 1,
+      suffix = '',
+      pages = params.pagesPerSource,
+      platform,
+    }: { vertical?: SearchVertical; tier?: 1 | 2; suffix?: string; pages?: number; platform?: string } = {},
   ): SourceReport => ({
     id: `${language}:${engine}${suffix}`,
     language,
     engine,
     vertical,
     tier,
+    ...(platform ? { platform } : {}),
     query,
     requested: pages * RESULTS_PER_PAGE,
     returned: 0,
@@ -934,13 +965,34 @@ export async function runPipeline(
   // Ngoài nước chỉ tìm bằng các ngôn ngữ đã chọn (nhóm tiếng Việt vẫn dùng để xác minh, không dùng để tìm)
   const searchGroups = plan.groups.filter((g) => !(params.region === 'foreign' && g.language === SOURCE_LANGUAGE));
   const tier1: SearchTarget[] = searchGroups.flatMap((group) => {
-    const list: (SearchTarget | null)[] = [
-      addToPlan({ group, engine: 'google', vertical: 'web', query: group.searchQuery, report: newReport(group.language, 'google', group.searchQuery) }),
-    ];
-    const local = SEARCH_LANGUAGES.find((l) => l.code === group.language)?.localEngine;
-    if (useLocalEngines && local) {
-      const query = buildLocalQuery(group, local);
-      list.push(addToPlan({ group, engine: local, vertical: 'web', query, report: newReport(group.language, local, query) }));
+    const list: (SearchTarget | null)[] = [];
+    if (wantNews) {
+      list.push(
+        addToPlan({ group, engine: 'google', vertical: 'web', query: group.searchQuery, report: newReport(group.language, 'google', group.searchQuery) }),
+      );
+      const local = SEARCH_LANGUAGES.find((l) => l.code === group.language)?.localEngine;
+      if (useLocalEngines && local) {
+        const query = buildLocalQuery(group, local);
+        list.push(addToPlan({ group, engine: local, vertical: 'web', query, report: newReport(group.language, local, query) }));
+      }
+    }
+    if (wantSocial) {
+      // Mỗi nền tảng đã chọn một truy vấn riêng (site:facebook.com…), có đủ 10 chỗ mỗi trang.
+      // Có từ khoá chính thì bỏ từ phụ: Google bắt buộc mọi từ trong truy vấn, bài đăng ngắn hay thiếu từ phụ
+      // (thử thực tế: thêm "đi" → 0 kết quả, bỏ đi → 8 kết quả)
+      const optional = group.terms.length ? [] : group.optional;
+      for (const platform of socialPlatforms) {
+        const query = buildMainQuery(group.terms, optional, params.region, { exclude, target: 'social', sites: platform.sites });
+        list.push(
+          addToPlan({
+            group,
+            engine: 'google',
+            vertical: 'social',
+            query,
+            report: newReport(group.language, 'google', query, { vertical: 'social', suffix: `:${platform.id}`, platform: platform.name }),
+          }),
+        );
+      }
     }
     return list.filter((t): t is SearchTarget => t !== null);
   });
@@ -983,7 +1035,9 @@ export async function runPipeline(
         const response = await search(target, page);
         if (!response) break; // lỗi: đã ghi vào báo cáo nguồn
         const fresh = collect(response, source);
-        if (page === 0 && source.tier === 1 && response.items.length >= RESULTS_PER_PAGE) fullFirstPage.add(source.language);
+        if (page === 0 && source.tier === 1 && source.vertical === 'web' && response.items.length >= RESULTS_PER_PAGE) {
+          fullFirstPage.add(source.language);
+        }
         if (!response.hasMore || response.items.length === 0) {
           source.exhausted = true;
           break;
@@ -1032,7 +1086,7 @@ export async function runPipeline(
   function tier2For(group: QueryGroup, { gap }: { gap: boolean }): SearchTarget[] {
     const list: SearchTarget[] = [];
     // Cách gọi khác (gợi ý) tìm riêng: mỗi cách gọi có đủ 10 chỗ thay vì chia chỗ với từ khoá gốc
-    const expansionQuery = buildExpansionQuery(group.terms, group.optional, params.region, { exclude });
+    const expansionQuery = buildExpansionQuery(group.terms, group.optional, params.region, { exclude, target: 'news' });
     if (expansionQuery) {
       list.push({
         group,
@@ -1056,7 +1110,7 @@ export async function runPipeline(
     // Cách diễn đạt khác của phần từ phụ; không có thì bỏ từ phụ (Google tìm theo từ khoá chính)
     const alternatives = group.altOptional?.length ? group.altOptional.map((o) => [o]) : group.terms.length && group.optional.length ? [[]] : [];
     alternatives.forEach((optional, i) => {
-      const query = buildSearchQuery(group.terms, optional, params.region, { exclude });
+      const query = buildSearchQuery(group.terms, optional, params.region, { exclude, target: 'news' });
       list.push({
         group,
         engine: 'google',
@@ -1083,6 +1137,8 @@ export async function runPipeline(
       if (signal?.aborted || stopSearching) return;
       // Tìm bổ sung khi: ngôn ngữ còn thiếu bài; hoặc có cách gọi khác mà trang đầu đã đầy (cách gọi khác bị
       // chia chỗ với từ khoá gốc) hay truy vấn chính quá dài nên chưa gộp cách gọi khác vào
+      // Truy vấn bổ sung chỉ tìm báo (cách diễn đạt khác, mục Tin tức): chọn chỉ mạng xã hội thì không có
+      if (!wantNews) return;
       const gap = (acceptedByLanguage.get(group.language) ?? 0) < GAP_TARGET;
       const hasExpansions = group.terms.some((t) => t.expansions?.length);
       const expansionsInMain = group.terms.some((t) => t.expansions?.some((e) => group.searchQuery.includes(`"${e}"`)));

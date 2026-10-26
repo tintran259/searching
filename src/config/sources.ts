@@ -180,6 +180,32 @@ export const COUNTRY_TLDS: Record<string, string> = {
  * xác minh bằng tiêu đề + đoạn trích Google trả về: phải có đủ mọi từ khoá chính mới được nhận.
  * Phạm vi xét theo ngôn ngữ bài đăng: viết tiếng Việt là "Trong nước", ngôn ngữ khác là "Ngoài nước".
  */
+/**
+ * Nền tảng dùng trong truy vấn Google khi chọn loại nguồn: "Mạng xã hội" → (site:a OR site:b …),
+ * "Báo" → -site:a -site:b … Thứ tự là thứ tự ưu tiên khi truy vấn chạm giới hạn 32 từ của Google.
+ */
+// Threads đã chuyển từ threads.net sang threads.com (bài cũ vẫn có thể được Google lưu theo tên miền cũ): dùng cả hai
+export const SOCIAL_SEARCH_SITES = ['facebook.com', 'youtube.com', 'tiktok.com', 'instagram.com', 'x.com', 'threads.com', 'threads.net'];
+
+/**
+ * Nền tảng chọn được khi tìm "Mạng xã hội": mỗi nền tảng một truy vấn riêng (1 lượt / ngôn ngữ). Gộp nhiều nền tảng
+ * vào một truy vấn (site:a OR site:b …) làm Google ưu tiên Facebook và bỏ sót nền tảng khác — thử thực tế:
+ * chỉ site:threads.com ra 7 bài Threads, gộp với Facebook + Instagram thì ra 0 bài Threads.
+ */
+export const SOCIAL_SEARCH_PLATFORMS = [
+  { id: 'facebook', name: 'Facebook', sites: ['facebook.com'] },
+  { id: 'instagram', name: 'Instagram', sites: ['instagram.com'] },
+  { id: 'threads', name: 'Threads', sites: ['threads.com', 'threads.net'] },
+  { id: 'x', name: 'X (Twitter)', sites: ['x.com', 'twitter.com'] },
+  { id: 'youtube', name: 'YouTube', sites: ['youtube.com'] },
+  { id: 'tiktok', name: 'TikTok', sites: ['tiktok.com'] },
+] as const;
+
+export type SocialPlatformId = (typeof SOCIAL_SEARCH_PLATFORMS)[number]['id'];
+
+/** Chọn sẵn khi tìm mạng xã hội */
+export const DEFAULT_SOCIAL_PLATFORMS: SocialPlatformId[] = ['facebook'];
+
 export const SOCIAL_PLATFORMS: SourceEntry[] = [
   { match: 'facebook.com', name: 'Facebook' },
   { match: 'fb.com', name: 'Facebook' },
