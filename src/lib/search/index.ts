@@ -33,7 +33,8 @@ export function getSearchProvider(): SearchProvider {
     default:
       throw new SearchProviderError(`SEARCH_PROVIDER "${name}" chưa được hỗ trợ.`, true);
   }
-  return withCache(provider, createCache<SearchResponse>('search', { ttlMs: SEARCH_CACHE_TTL_MS }));
+  // "search-v3": trang đầu không còn gửi start=0 (Google nới lỏng truy vấn), link "/goto?url=…" được đổi ra URL thật
+  return withCache(provider, createCache<SearchResponse>('search-v3', { ttlMs: SEARCH_CACHE_TTL_MS }));
 }
 
 export * from './types';

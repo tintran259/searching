@@ -132,7 +132,7 @@ function SourceTable({ sources, finished }: { sources: SourceReport[]; finished:
               return (
                 <tr key={r.id} className="border-b border-line/60 align-top last:border-0">
                   <td className="py-2 pr-3 font-medium whitespace-nowrap" title={r.query || undefined}>
-                    {sourceLabel(r.language, r.engine, r.vertical, r.tier)}
+                    {sourceLabel(r.language, r.engine, r.vertical, r.tier, r.platform)}
                   </td>
                   <td className="py-2 pr-3 text-right text-muted tabular-nums">{r.requested}</td>
                   <td className="py-2 pr-3 text-right tabular-nums">{num(r.returned, ran)}</td>

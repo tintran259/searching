@@ -1,3 +1,4 @@
+import type { SocialPlatformId } from '@/config/sources';
 import type { SearchEngine } from './search/types';
 
 /**
@@ -49,6 +50,10 @@ export interface SearchParams {
   allowDomains?: string[];
   /** Domain luôn loại */
   denyDomains?: string[];
+  /** Loại nguồn cần tìm, mặc định chỉ báo (news) */
+  sourceTypes?: SourceType;
+  /** Nền tảng cần tìm khi tìm mạng xã hội — mỗi nền tảng một truy vấn riêng. Mặc định DEFAULT_SOCIAL_PLATFORMS */
+  socialPlatforms?: SocialPlatformId[];
   /**
    * Cách gọi khác người dùng chọn từ gợi ý cho từng từ khoá chính (vd "Tô Lâm" → "Chủ tịch nước Việt Nam").
    * Bài có cách gọi này thay cho từ khoá vẫn được nhận, ghi rõ "khớp theo gợi ý".
@@ -82,8 +87,14 @@ export interface TermSuggestions {
 
 export type SourcePolicy = 'verified' | 'labeled';
 
-/** Kết quả tìm từ khung tìm kiếm web hay mục Tin tức (Google News: tbm=nws) */
-export type SearchVertical = 'web' | 'news';
+/** Loại nguồn cần tìm: chỉ báo / trang tin, chỉ bài đăng mạng xã hội, hay cả hai (mỗi loại một truy vấn riêng) */
+export type SourceType = 'news' | 'social' | 'both';
+
+/**
+ * Kết quả tìm từ khung tìm kiếm web, mục Tin tức (Google News: tbm=nws), hay truy vấn web chỉ trên các nền tảng
+ * mạng xã hội (site:facebook.com OR …)
+ */
+export type SearchVertical = 'web' | 'news' | 'social';
 
 /** Mã ngôn ngữ của nhóm truy vấn gốc */
 export const SOURCE_LANGUAGE = 'vi';
@@ -262,6 +273,8 @@ export interface SourceReport {
   vertical: SearchVertical;
   /** 1: truy vấn chính; 2: truy vấn bổ sung, chỉ chạy khi ngôn ngữ đó còn thiếu kết quả và còn ngân sách */
   tier: 1 | 2;
+  /** Truy vấn mạng xã hội: tên nền tảng (vd "Threads") */
+  platform?: string;
   /** Truy vấn đã gửi (rỗng nếu không tìm) */
   query: string;
   /** Số kết quả tối đa cần lấy */

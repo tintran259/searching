@@ -2,6 +2,7 @@
  * Đọc và kiểm tra tham số tìm kiếm từ query string (dùng ở API route và client).
  */
 import { SEARCH_LANGUAGES } from '@/config/languages';
+import { DEFAULT_SOCIAL_PLATFORMS, SOCIAL_SEARCH_PLATFORMS, type SocialPlatformId } from '@/config/sources';
 import { isValidIsoDate, shiftDate } from './date-range';
 import { formatDate } from './labels';
 import { canonicalQuery, parseList, parseQuery, termAlternatives } from './query-syntax';
@@ -109,6 +110,22 @@ export function parseSearchParams(sp: URLSearchParams, today: string): ParsedSea
   // policy=labeled (mặc định): nhận mọi domain có đủ nội dung; verified: chỉ nhận báo có bằng chứng quốc gia
   const policy = sp.get('policy') ?? 'labeled';
   if (policy !== 'verified' && policy !== 'labeled') return fail('Chính sách nguồn phải là "verified" hoặc "labeled".');
+  // sources=news (mặc định) | social | both: chỉ báo, chỉ mạng xã hội, hay cả hai
+  const sourceTypes = sp.get('sources') ?? 'news';
+  if (sourceTypes !== 'news' && sourceTypes !== 'social' && sourceTypes !== 'both') {
+    return fail('Loại nguồn phải là "news", "social" hoặc "both".');
+  }
+
+  // platforms=facebook,threads: nền tảng cần tìm khi tìm mạng xã hội (mỗi nền tảng một truy vấn)
+  const platformParam = sp.get('platforms');
+  const requestedPlatforms = platformParam === null ? DEFAULT_SOCIAL_PLATFORMS : parseList(platformParam).map((p) => p.toLowerCase());
+  const unknownPlatforms = requestedPlatforms.filter((p) => !SOCIAL_SEARCH_PLATFORMS.some((x) => x.id === p));
+  if (unknownPlatforms.length) return fail(`Nền tảng chưa hỗ trợ: ${unknownPlatforms.join(', ')}.`);
+  const socialPlatforms = SOCIAL_SEARCH_PLATFORMS.filter((p) => requestedPlatforms.includes(p.id)).map((p) => p.id as SocialPlatformId);
+  if (sourceTypes !== 'news' && socialPlatforms.length === 0) {
+    return fail('Tìm mạng xã hội: hãy chọn ít nhất một nền tảng.');
+  }
+
   // republished=0: giữ cả bài đăng lại / dịch lại từ báo Việt Nam (mặc định loại)
   const excludeRepublished = !['0', 'false'].includes(sp.get('republished') ?? '');
 
@@ -129,6 +146,8 @@ export function parseSearchParams(sp: URLSearchParams, today: string): ParsedSea
       allowDomains,
       denyDomains,
       expansions,
+      sourceTypes,
+      socialPlatforms,
     },
   };
 }
@@ -195,5 +214,9 @@ export function toQueryString(params: SearchParams): string {
   if (params.allowDomains?.length) qs.set('allow', params.allowDomains.join(','));
   if (params.denyDomains?.length) qs.set('deny', params.denyDomains.join(','));
   if (params.expansions?.length) qs.set('expand', JSON.stringify(params.expansions));
+  if (params.sourceTypes && params.sourceTypes !== 'news') qs.set('sources', params.sourceTypes);
+  if (params.socialPlatforms && params.socialPlatforms.join(',') !== DEFAULT_SOCIAL_PLATFORMS.join(',')) {
+    qs.set('platforms', params.socialPlatforms.join(','));
+  }
   return qs.toString();
 }
